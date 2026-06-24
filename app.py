@@ -16,7 +16,6 @@ STATUS_LOG = "/var/log/openvpn/openvpn-status.log"
 
 def get_online_clients():
     online_users = set()
-    # Проверяем оба возможных пути к логу
     paths = ["/run/openvpn-server/status-server.log", "/var/log/openvpn/openvpn-status.log"]
     status_log_path = None
     
@@ -32,13 +31,13 @@ def get_online_clients():
         with open(status_log_path, "r", errors="ignore") as f:
             for line in f:
                 line = line.strip()
-                # Строка лога в формате CSV начинается строго с CLIENT_LIST
                 if line.startswith("CLIENT_LIST,"):
                     parts = line.split(",")
                     if len(parts) > 2:
                         cn = parts[1].strip()
                         if cn and cn != "Common Name" and cn != "UNDEF":
-                            online_users.add(cn)
+                            # Сохраняем имя строго в нижнем регистре
+                            online_users.add(cn.lower())
     except Exception as e:
         print(f"Error parsing status log: {e}")
     return online_users
@@ -73,13 +72,14 @@ def get_clients():
         if not cn_part:
             continue
             
-        name = cn_part.split("CN=")[-1]
+        name = cn_part.split("CN=")[-1].strip()
         
         if name != "server":
             clients.append({
                 "name": name,
                 "status": "Active" if status == "V" else "Revoked",
-                "online": name in online_set if status == "V" else False
+                # Сравниваем имя тоже в нижнем регистре
+                "online": name.lower() in online_set if status == "V" else False
             })
     return clients
 
