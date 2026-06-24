@@ -46,7 +46,7 @@
 Склонируйте репозиторий в системную директорию `/opt`:
 
     cd /opt
-    git clone [https://github.com/Ttolyanich/openvpn-web.git](https://github.com/Ttolyanich/openvpn-web.git)
+    git clone https://github.com/Ttolyanich/openvpn-web.git
     cd openvpn-web
 
 Установите пакетный менеджер Python, утилиты авторизации (содержат htpasswd), веб-сервер и глобальные зависимости:
