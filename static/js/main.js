@@ -4,7 +4,7 @@ let clientToRevoke = null;
 async function checkServiceStatus() {
     const indicator = document.getElementById('serviceIndicator');
     try {
-        const response = await fetch('/api/service/status');
+        const response = await fetch(`/api/service/status?_=${new Date().getTime()}`);
         const data = await response.json();
         if (data.status === 'active') {
             indicator.className = 'service-status-badge status-active';
@@ -47,7 +47,8 @@ async function restartService() {
 
 async function loadClients() {
     try {
-        const response = await fetch('/api/clients');
+        // Добавляем anti-cache параметр времени, чтобы заставить браузер обновить данные
+        const response = await fetch(`/api/clients?_=${new Date().getTime()}`);
         allClients = await response.json();
         filterClients();
     } catch (error) {
