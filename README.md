@@ -38,7 +38,7 @@
 ### Шаг 2. Инициализация OpenVPN Core
 Запустите базовый инсталлятор OpenVPN в тихом (non-interactive) режиме, передав ему стандартные параметры (Интерфейс, UDP, Порт 1194, Имя первого клиента `admin_client`):
 
-    wget -O /tmp/openvpn.sh [https://raw.githubusercontent.com/Ttolyanich/openvpn-web/main/openvpn.sh](https://raw.githubusercontent.com/Ttolyanich/openvpn-web/main/openvpn.sh)
+    wget -O /tmp/openvpn.sh https://raw.githubusercontent.com/Ttolyanich/openvpn-web/main/openvpn.sh
     chmod +x /tmp/openvpn.sh
     echo -e "1\n1\n1194\nadmin_client\n" | /tmp/openvpn.sh
 
