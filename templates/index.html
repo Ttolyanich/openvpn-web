@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VPN Web Panel</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23c52f31'%3E%3Cpath d='M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-1 6h2v6h-2V7zm0 8h2v2h-2v-2z'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="brand-zone">
+                <div class="logo-box">V</div>
+                <span class="brand-title">VPN <span class="accent-text">PANEL</span></span>
+            </div>
+            <div class="system-status">v1.0 // ONLINE</div>
+        </div>
+    </nav>
+
+    <main class="main-container">
+        
+        <div class="panel-card">
+            <div class="card-header">
+                <h2 class="header-title uppercase-accent">Выпустить конфигурацию</h2>
+                <p class="header-subtitle font-mono">Допустимые символы: a-z, 0-9, _, -</p>
+            </div>
+            <div class="card-body bg-offset">
+                <div class="form-row">
+                    <div class="input-wrapper">
+                        <input type="text" id="clientNameInput" placeholder="client_name" oninput="this.value = this.value.replace(/\s+/g, '_')">
+                        <span class="input-label">CN</span>
+                    </div>
+                    <button onclick="createClient()" class="btn-submit">Выпустить</button>
+                </div>
+                <div id="actionMessage" class="status-msg"></div>
+            </div>
+        </div>
+
+        <div class="panel-card">
+            <div class="card-header table-actions">
+                <h2 class="header-title uppercase-muted">Сертификаты системы</h2>
+                <div class="filter-zone">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="hideRevokedCheck" onchange="filterClients()" checked>
+                        Скрыть отозванные
+                    </label>
+                    <div class="search-wrapper">
+                        <input type="text" id="searchInput" oninput="filterClients()" placeholder="Поиск по имени...">
+                    </div>
+                </div>
+            </div>
+
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Имя клиента (Common Name)</th>
+                            <th>Статус</th>
+                            <th class="text-right">Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="clientsTableBody">
+                        </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+
+    <div id="confirmModal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="modal-alert-icon">!</div>
+                <h3 class="modal-title">Отозвать сертификат?</h3>
+            </div>
+            <div class="modal-body">
+                <p>Вы собираетесь отозвать SSL-сертификат для: <span id="modalClientName" class="highlight-box"></span>. Доступ к сети VPN будет мгновенно заблокирован.</p>
+            </div>
+            <div class="modal-footer">
+                <button onclick="closeModal()" class="btn-text">Отмена</button>
+                <button id="modalConfirmBtn" class="btn-danger">Отозвать</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
