@@ -65,12 +65,20 @@ function renderClients(clients) {
     }
 
     clients.forEach(client => {
-        const isActive = client.status === 'Active';
-        const statusBadge = isActive 
-            ? `<span class="status-badge active">Активен</span>`
-            : `<span class="status-badge revoked">Отозван</span>`;
+        let statusBadge = '';
+        
+        if (client.status === 'Active') {
+            if (client.online) {
+                statusBadge = `<span class="status-badge active" style="background-color: #059669; color: white;">Онлайн</span>`;
+            } else {
+                statusBadge = `<span class="status-badge active">Активен</span>`;
+            }
+        } else {
+            statusBadge = `<span class="status-badge revoked">Отозван</span>`;
+        }
 
         const safeName = client.name.replace(/['"]/g, '');
+        const isActive = client.status === 'Active';
 
         const actionButtons = isActive 
             ? `<div class="actions-group">
@@ -81,6 +89,12 @@ function renderClients(clients) {
             : `<div class="text-muted-italic">Действий нет</div>`;
 
         const row = document.createElement('tr');
+        
+        // Если клиент онлайн, можно слегка подсветить строку (опционально)
+        if (client.online) {
+            row.style.backgroundColor = 'rgba(16, 185, 129, 0.04)';
+        }
+
         row.innerHTML = `
             <td style="font-family:monospace; font-weight:600; padding:14px 24px;">${safeName}</td>
             <td style="padding:14px 24px;">${statusBadge}</td>
@@ -138,7 +152,7 @@ async function createClient() {
 }
 
 async function rebuildClient(name) {
-    if (!confirm(`Пересобрать .ovpn файл для ${name}? Текущий файл в /root/openvpn будет перезаписан с учетом новых переменных client-common.`)) return;
+    if (!confirm(`Пересобрать .ovpn файл для ${name}? Текущий файл в /root/openvpn будет перезаписан.`)) return;
     try {
         const response = await fetch('/api/clients/rebuild', {
             method: 'POST',
@@ -194,5 +208,10 @@ document.getElementById('modalConfirmBtn').onclick = async function() {
 window.onload = function() {
     loadClients();
     checkServiceStatus();
-    setInterval(checkServiceStatus, 10000); // Опрос статуса службы каждые 10 секунд
+    
+    // Автоматически обновляем и сессии клиентов, и статус демона каждые 10 секунд
+    setInterval(function() {
+        loadClients();
+        checkServiceStatus();
+    }, 10000);
 };

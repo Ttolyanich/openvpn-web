@@ -11,10 +11,46 @@ CLIENT_COMMON = "/etc/openvpn/server/client-common.txt"
 INDEX_FILE = f"{EASY_RSA_DIR}/pki/index.txt"
 OPENVPN_SERVICE = "openvpn-server@server.service"
 
+# Путь к статус-логу OpenVPN (если у тебя status-server.log, поменяй имя файла ниже)
+STATUS_LOG = "/var/log/openvpn/openvpn-status.log"
+
+def get_online_clients():
+    online_users = set()
+    if not os.path.exists(STATUS_LOG):
+        # Пробуем альтернативный путь, если первый не найден
+        alt_path = "/run/openvpn-server/status-server.log"
+        if os.path.exists(alt_path):
+            STATUS_LOG_PATH = alt_path
+        else:
+            return online_users
+    else:
+        STATUS_LOG_PATH = STATUS_LOG
+
+    try:
+        with open(STATUS_LOG_PATH, "r", errors="ignore") as f:
+            content = f.read()
+        
+        # Ищем блок между OpenVPN CLIENT LIST и ROUTING TABLE
+        client_section = re.search(r'OpenVPN CLIENT LIST\n(.*?)\nROUTING TABLE', content, re.DOTALL)
+        if client_section:
+            lines = client_section.group(1).split('\n')
+            for line in lines:
+                if ',' in line and not line.startswith('Common Name'):
+                    parts = line.split(',')
+                    if len(parts) > 0:
+                        cn = parts[0].strip()
+                        if cn and cn != "UNDEF":
+                            online_users.add(cn)
+    except Exception as e:
+        print(f"Error parsing status log: {e}")
+    return online_users
+
 def get_clients():
     clients = []
     if not os.path.exists(INDEX_FILE):
         return clients
+    
+    online_set = get_online_clients()
     
     with open(INDEX_FILE, "r") as f:
         lines = f.readlines()
@@ -44,7 +80,8 @@ def get_clients():
         if name != "server":
             clients.append({
                 "name": name,
-                "status": "Active" if status == "V" else "Revoked"
+                "status": "Active" if status == "V" else "Revoked",
+                "online": name in online_set if status == "V" else False
             })
     return clients
 
@@ -143,7 +180,6 @@ def api_revoke_client():
         subprocess.run(["cp", f"{EASY_RSA_DIR}/pki/crl.pem", "/etc/openvpn/server/crl.pem"], check=True)
         subprocess.run(["chown", "nobody:nogroup", "/etc/openvpn/server/crl.pem"], check=True)
         
-        # Пинаем службу OpenVPN перечитать CRL без обрыва текущих сессий остальных игроков
         subprocess.run(["systemctl", "reload", OPENVPN_SERVICE])
 
         for folder, ext in [("reqs", "req"), ("private", "key")]:
