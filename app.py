@@ -16,30 +16,28 @@ STATUS_LOG = "/var/log/openvpn/openvpn-status.log"
 
 def get_online_clients():
     online_users = set()
-    if not os.path.exists(STATUS_LOG):
-        # Пробуем альтернативный путь, если первый не найден
-        alt_path = "/run/openvpn-server/status-server.log"
-        if os.path.exists(alt_path):
-            STATUS_LOG_PATH = alt_path
-        else:
-            return online_users
-    else:
-        STATUS_LOG_PATH = STATUS_LOG
+    # Проверяем оба возможных пути к логу
+    paths = ["/run/openvpn-server/status-server.log", "/var/log/openvpn/openvpn-status.log"]
+    status_log_path = None
+    
+    for p in paths:
+        if os.path.exists(p):
+            status_log_path = p
+            break
+            
+    if not status_log_path:
+        return online_users
 
     try:
-        with open(STATUS_LOG_PATH, "r", errors="ignore") as f:
-            content = f.read()
-        
-        # Ищем блок между OpenVPN CLIENT LIST и ROUTING TABLE
-        client_section = re.search(r'OpenVPN CLIENT LIST\n(.*?)\nROUTING TABLE', content, re.DOTALL)
-        if client_section:
-            lines = client_section.group(1).split('\n')
-            for line in lines:
-                if ',' in line and not line.startswith('Common Name'):
-                    parts = line.split(',')
-                    if len(parts) > 0:
-                        cn = parts[0].strip()
-                        if cn and cn != "UNDEF":
+        with open(status_log_path, "r", errors="ignore") as f:
+            for line in f:
+                line = line.strip()
+                # Строка лога в формате CSV начинается строго с CLIENT_LIST
+                if line.startswith("CLIENT_LIST,"):
+                    parts = line.split(",")
+                    if len(parts) > 2:
+                        cn = parts[1].strip()
+                        if cn and cn != "Common Name" and cn != "UNDEF":
                             online_users.add(cn)
     except Exception as e:
         print(f"Error parsing status log: {e}")
