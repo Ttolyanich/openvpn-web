@@ -1,5 +1,7 @@
 # OpenVPN Web Management Panel
 
+<img width="1030" height="522" alt="image" src="https://github.com/user-attachments/assets/da84d751-7d36-4051-91d3-0efbdb21e8a8" />
+
 Легковесная веб-панель на Python/Flask для управления клиентскими конфигурациями OpenVPN (на базе логики скрипта nyr/openvpn-install). Автоматизирует рутину генерации сертификатов, обеспечивает живой поиск по базе данных Common Name (CN) и позволяет безопасно отзывать доступ.
 
 ## Возможности
