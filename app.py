@@ -9,6 +9,7 @@ EASY_RSA_DIR = "/etc/openvpn/server/easy-rsa"
 OUTPUT_DIR = "/root/openvpn"
 CLIENT_COMMON = "/etc/openvpn/server/client-common.txt"
 INDEX_FILE = f"{EASY_RSA_DIR}/pki/index.txt"
+OPENVPN_SERVICE = "openvpn-server@server.service"
 
 def get_clients():
     clients = []
@@ -70,6 +71,7 @@ def generate_ovpn(client_name):
             else:
                 tc = tc_content
 
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
         ovpn_path = os.path.join(OUTPUT_DIR, f"{client_name}.ovpn")
         with open(ovpn_path, "w") as f:
             f.write(f"{common}\n")
@@ -115,14 +117,24 @@ def api_create_client():
     except subprocess.CalledProcessError:
         return jsonify({"error": "Ошибка выполнения Easy-RSA"}), 500
 
+@app.route('/api/clients/rebuild', methods=['POST'])
+def api_rebuild_client():
+    data = request.json or {}
+    client_name = sanitize_name(data.get('name', '').strip())
+    if not client_name:
+        return jsonify({"error": "Имя клиента не указано"}), 400
+        
+    if generate_ovpn(client_name):
+        return jsonify({"success": True})
+    return jsonify({"error": "Не удалось пересобрать конфигурационный файл"}), 500
+
 @app.route('/api/clients/revoke', methods=['POST'])
 def api_revoke_client():
     data = request.get_json(silent=True) or request.json or {}
-    raw_name = data.get('name', '') or ''
-    client_name = raw_name.strip()
+    client_name = data.get('name', '').strip()
     
     if not client_name:
-        return jsonify({"error": "Имя клиента не указано или передано некорректно"}), 400
+        return jsonify({"error": "Имя клиента не указано"}), 400
 
     try:
         subprocess.run(["./easyrsa", "--batch", "revoke", client_name], cwd=EASY_RSA_DIR, check=True)
@@ -131,6 +143,9 @@ def api_revoke_client():
         subprocess.run(["cp", f"{EASY_RSA_DIR}/pki/crl.pem", "/etc/openvpn/server/crl.pem"], check=True)
         subprocess.run(["chown", "nobody:nogroup", "/etc/openvpn/server/crl.pem"], check=True)
         
+        # Пинаем службу OpenVPN перечитать CRL без обрыва текущих сессий остальных игроков
+        subprocess.run(["systemctl", "reload", OPENVPN_SERVICE])
+
         for folder, ext in [("reqs", "req"), ("private", "key")]:
             file_path = f"{EASY_RSA_DIR}/pki/{folder}/{client_name}.{ext}"
             if os.path.exists(file_path):
@@ -139,7 +154,7 @@ def api_revoke_client():
         return jsonify({"success": True})
     except subprocess.CalledProcessError as e:
         print(f"Subprocess error during revoke: {e}")
-        return jsonify({"error": "Не удалось отозвать сертификат через Easy-RSA"}), 500
+        return jsonify({"error": "Не удалось отозвать сертификат"}), 500
 
 @app.route('/api/clients/download/<string:client_name>', methods=['GET'])
 def download_config(client_name):
@@ -149,6 +164,20 @@ def download_config(client_name):
         return send_file(file_path, as_attachment=True)
     else:
         abort(404)
+
+@app.route('/api/service/status', methods=['GET'])
+def service_status():
+    res = subprocess.run(["systemctl", "is-active", OPENVPN_SERVICE], capture_output=True, text=True)
+    status = res.stdout.strip()
+    return jsonify({"status": "active" if status == "active" else "failed"})
+
+@app.route('/api/service/restart', methods=['POST'])
+def service_restart():
+    try:
+        subprocess.run(["systemctl", "restart", OPENVPN_SERVICE], check=True)
+        return jsonify({"success": True})
+    except subprocess.CalledProcessError:
+        return jsonify({"error": "Не удалось перезапустить службу"}), 500
 
 if __name__ == '__main__':
     os.makedirs(OUTPUT_DIR, exist_ok=True)

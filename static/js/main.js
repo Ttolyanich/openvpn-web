@@ -1,6 +1,50 @@
 let allClients = [];
 let clientToRevoke = null;
 
+async function checkServiceStatus() {
+    const indicator = document.getElementById('serviceIndicator');
+    try {
+        const response = await fetch('/api/service/status');
+        const data = await response.json();
+        if (data.status === 'active') {
+            indicator.className = 'service-status-badge status-active';
+            indicator.innerText = 'VPN: RUNNING';
+        } else {
+            indicator.className = 'service-status-badge status-failed';
+            indicator.innerText = 'VPN: STOPPED';
+        }
+    } catch {
+        indicator.className = 'service-status-badge status-failed';
+        indicator.innerText = 'VPN: ERROR';
+    }
+}
+
+async function restartService() {
+    const btn = document.getElementById('serviceRestartBtn');
+    const indicator = document.getElementById('serviceIndicator');
+    btn.classList.add('spinning');
+    indicator.className = 'service-status-badge status-loading';
+    indicator.innerText = 'VPN: RESTARTING...';
+
+    try {
+        const response = await fetch('/api/service/restart', { method: 'POST' });
+        if (response.ok) {
+            setTimeout(async () => {
+                await checkServiceStatus();
+                btn.classList.remove('spinning');
+            }, 1500);
+        } else {
+            alert('Не удалось перезапустить службу OpenVPN');
+            btn.classList.remove('spinning');
+            checkServiceStatus();
+        }
+    } catch {
+        alert('Ошибка связи с сервером');
+        btn.classList.remove('spinning');
+        checkServiceStatus();
+    }
+}
+
 async function loadClients() {
     try {
         const response = await fetch('/api/clients');
@@ -30,6 +74,7 @@ function renderClients(clients) {
 
         const actionButtons = isActive 
             ? `<div class="actions-group">
+                <button onclick="rebuildClient('${safeName}')" class="btn-action-rebuild" title="Перегенерировать .ovpn на базе нового common-файла">Пересобрать</button>
                 <a href="/api/clients/download/${encodeURIComponent(safeName)}" class="btn-action-download">Скачать</a>
                 <button onclick="openRevokeModal('${safeName}')" class="btn-action-revoke">Отозвать</button>
                </div>`
@@ -72,10 +117,7 @@ async function createClient() {
     try {
         const response = await fetch('/api/clients', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify({ name: name })
         });
         const result = await response.json();
@@ -92,6 +134,25 @@ async function createClient() {
     } catch (err) {
         msg.style.color = "#ef4444";
         msg.innerText = "Ошибка соединения с сервером.";
+    }
+}
+
+async function rebuildClient(name) {
+    if (!confirm(`Пересобрать .ovpn файл для ${name}? Текущий файл в /root/openvpn будет перезаписан с учетом новых переменных client-common.`)) return;
+    try {
+        const response = await fetch('/api/clients/rebuild', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name })
+        });
+        if (response.ok) {
+            alert(`Конфиг для ${name} успешно обновлен.`);
+        } else {
+            const res = await response.json();
+            alert(`Ошибка: ${res.error}`);
+        }
+    } catch {
+        alert('Ошибка отправки запроса на сервер.');
     }
 }
 
@@ -115,10 +176,7 @@ document.getElementById('modalConfirmBtn').onclick = async function() {
     try {
         const response = await fetch('/api/clients/revoke', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify({ name: nameToSend })
         });
         
@@ -133,4 +191,8 @@ document.getElementById('modalConfirmBtn').onclick = async function() {
     }
 };
 
-window.onload = loadClients;
+window.onload = function() {
+    loadClients();
+    checkServiceStatus();
+    setInterval(checkServiceStatus, 10000); // Опрос статуса службы каждые 10 секунд
+};

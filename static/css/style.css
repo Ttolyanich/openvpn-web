@@ -90,3 +90,27 @@ input[type="text"]:focus { border-color: #c52f31; }
 .btn-text:hover { color: #111827; }
 .btn-danger { background-color: #c52f31; color: #ffffff; border: none; padding: 8px 20px; border-radius: 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; cursor: pointer; transition: background-color 0.1s; }
 .btn-danger:hover { background-color: #9f0014; }
+
+/* СТИЛИ УПРАВЛЕНИЯ СЛУЖБОЙ В ШАПКЕ */
+.service-control-zone { display: flex; align-items: center; gap: 8px; }
+.service-status-badge { font-size: 10px; font-weight: 800; padding: 5px 10px; border-radius: 4px; letter-spacing: 0.05em; text-transform: uppercase; border: 1px solid transparent; }
+.service-status-badge.status-active { background-color: #d1fae5; color: #065f46; border-color: #a7f3d0; }
+.service-status-badge.status-failed { background-color: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+.service-status-badge.status-loading { background-color: #f3f4f6; color: #4b5563; border-color: #e5e7eb; }
+
+.btn-service-restart { background-color: transparent; border: 1px solid #d1d5db; color: #4b5563; border-radius: 4px; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.1s; }
+.btn-service-restart:hover { background-color: #f3f4f6; color: #111827; border-color: #9ca3af; }
+.btn-service-restart.spinning svg { animation: spin 1s linear infinite; }
+
+@keyframes spin { 100% { transform: rotate(360deg); } }
+
+@media (prefers-color-scheme: dark) {
+    .service-status-badge.status-active { background-color: #064e3b !important; color: #a7f3d0 !important; border-color: #047857 !important; }
+    .service-status-badge.status-failed { background-color: #7f1d1d !important; color: #fca5a5 !important; border-color: #b91c1c !important; }
+    .service-status-badge.status-loading { background-color: #1f1f1f !important; color: #9ca3af !important; border-color: #333333 !important; }
+    .btn-service-restart { border-color: #333333 !important; color: #9ca3af !important; }
+    .btn-service-restart:hover { background-color: #222222 !important; color: #ffffff !important; border-color: #444444 !important; }
+}
+
+.btn-action-rebuild { background-color: #4b5563; color: #ffffff; padding: 6px 10px; border-radius: 4px; border: none; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.02em; cursor: pointer; }
+.btn-action-rebuild:hover { background-color: #374151; }

@@ -15,7 +15,12 @@
                 <div class="logo-box">V</div>
                 <span class="brand-title">VPN <span class="accent-text">PANEL</span></span>
             </div>
-            <div class="system-status">v1.0 // ONLINE</div>
+            <div class="service-control-zone">
+                <div id="serviceIndicator" class="service-status-badge status-loading">Проверка...</div>
+                <button id="serviceRestartBtn" onclick="restartService()" class="btn-service-restart" title="Перезапустить службу OpenVPN">
+                    <svg xmlns="[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                </button>
+            </div>
         </div>
     </nav>
 
