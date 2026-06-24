@@ -36,11 +36,11 @@
     systemctl enable --now nftables
 
 ### Шаг 2. Инициализация OpenVPN Core
-Запустите базовый инсталлятор OpenVPN в тихом (non-interactive) режиме, передав ему стандартные параметры (Интерфейс, UDP, Порт 1194, Имя первого клиента `admin_client`):
+Запустите базовый инсталлятор OpenVPN передав ему стандартные параметры (Интерфейс, UDP, Порт 1194, Имя первого клиента `client`):
 
     wget -O /tmp/openvpn.sh https://raw.githubusercontent.com/Ttolyanich/openvpn-web/main/openvpn.sh
     chmod +x /tmp/openvpn.sh
-    echo -e "1\n1\n1194\nadmin_client\n" | /tmp/openvpn.sh
+    /tmp/openvpn.sh
 
 ### Шаг 3. Клонирование и деплой веб-панели
 Склонируйте репозиторий в системную директорию `/opt`:
