@@ -25,12 +25,14 @@
 Настройте правила трансляции адресов (NAT/Masquerade) для интерфейса `tun0` через nftables. Отредактируйте `/etc/nftables.conf`:
 
     #!/usr/sbin/nft -f
+
     flush ruleset
+
     table ip nat {
-        chain POSTROUTING {
-            type nat hook postrouting priority srcnat; policy accept;
-            iifname "tun0" masquerade
-        }
+            chain POSTROUTING {
+                    type nat hook postrouting priority srcnat; policy accept;
+                    iifname "tun0" masquerade
+            }
     }
 
 Активируйте и запустите службу межсетевого экрана:
