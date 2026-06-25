@@ -1,10 +1,14 @@
+// Автоматически определяет базовый префикс (пустой для корня, /openvpn для боевого)
+const BASE_PATH = window.location.pathname.startsWith('/openvpn') ? '/openvpn' : '';
+
 let allClients = [];
 let clientToRevoke = null;
 
+// Проверка статуса службы OpenVPN
 async function checkServiceStatus() {
     const indicator = document.getElementById('serviceIndicator');
     try {
-        const response = await fetch(`/api/service/status?_=${new Date().getTime()}`);
+        const response = await fetch(`${BASE_PATH}/api/service/status?_=${new Date().getTime()}`);
         const data = await response.json();
         if (data.status === 'active') {
             indicator.className = 'service-status-badge status-active';
@@ -19,6 +23,7 @@ async function checkServiceStatus() {
     }
 }
 
+// Перезапуск службы OpenVPN
 async function restartService() {
     const btn = document.getElementById('serviceRestartBtn');
     const indicator = document.getElementById('serviceIndicator');
@@ -27,7 +32,7 @@ async function restartService() {
     indicator.innerText = 'VPN: RESTARTING...';
 
     try {
-        const response = await fetch('/api/service/restart', { method: 'POST' });
+        const response = await fetch(`${BASE_PATH}/api/service/restart`, { method: 'POST' });
         if (response.ok) {
             setTimeout(async () => {
                 await checkServiceStatus();
@@ -45,10 +50,10 @@ async function restartService() {
     }
 }
 
+// Загрузка списка клиентов
 async function loadClients() {
     try {
-        // Добавляем anti-cache параметр времени, чтобы заставить браузер обновить данные
-        const response = await fetch(`/api/clients?_=${new Date().getTime()}`);
+        const response = await fetch(`${BASE_PATH}/api/clients?_=${new Date().getTime()}`);
         allClients = await response.json();
         filterClients();
     } catch (error) {
@@ -56,6 +61,7 @@ async function loadClients() {
     }
 }
 
+// Отрисовка таблицы клиентов
 function renderClients(clients) {
     const tbody = document.getElementById('clientsTableBody');
     tbody.innerHTML = '';
@@ -81,17 +87,17 @@ function renderClients(clients) {
         const safeName = client.name.replace(/['"]/g, '');
         const isActive = client.status === 'Active';
 
+        // Динамическая ссылка скачивания и экшены с учетом BASE_PATH
         const actionButtons = isActive 
             ? `<div class="actions-group">
-                <button onclick="rebuildClient('${safeName}')" class="btn-action-rebuild" title="Перегенерировать .ovpn на базе нового common-файла">Пересобрать</button>
-                <a href="/api/clients/download/${encodeURIComponent(safeName)}" class="btn-action-download">Скачать</a>
+                <button onclick="rebuildClient('${safeName}')" class="btn-action-rebuild" title="Обновить .ovpn на базе нового common-файла">Пересобрать</button>
+                <a href="${BASE_PATH}/api/clients/download/${encodeURIComponent(safeName)}" class="btn-action-download">Скачать</a>
                 <button onclick="openRevokeModal('${safeName}')" class="btn-action-revoke">Отозвать</button>
                </div>`
             : `<div class="text-muted-italic">Действий нет</div>`;
 
         const row = document.createElement('tr');
         
-        // Если клиент онлайн, можно слегка подсветить строку (опционально)
         if (client.online) {
             row.style.backgroundColor = 'rgba(16, 185, 129, 0.04)';
         }
@@ -105,6 +111,7 @@ function renderClients(clients) {
     });
 }
 
+// Поиск и фильтрация
 function filterClients() {
     const query = document.getElementById('searchInput').value.toLowerCase();
     const hideRevoked = document.getElementById('hideRevokedCheck').checked;
@@ -118,6 +125,7 @@ function filterClients() {
     renderClients(filtered);
 }
 
+// Создание нового клиента
 async function createClient() {
     const input = document.getElementById('clientNameInput');
     const name = input.value.trim();
@@ -130,7 +138,7 @@ async function createClient() {
     msg.innerText = "Генерация сертификата на сервере...";
 
     try {
-        const response = await fetch('/api/clients', {
+        const response = await fetch(`${BASE_PATH}/api/clients`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify({ name: name })
@@ -152,10 +160,11 @@ async function createClient() {
     }
 }
 
+// Пересборка конфига .ovpn
 async function rebuildClient(name) {
-    if (!confirm(`Пересобрать .ovpn файл для ${name}? Текущий файл в /root/openvpn будет перезаписан.`)) return;
+    if (!confirm(`Пересобрать .ovpn файл для ${name}?`)) return;
     try {
-        const response = await fetch('/api/clients/rebuild', {
+        const response = await fetch(`${BASE_PATH}/api/clients/rebuild`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: name })
@@ -171,6 +180,7 @@ async function rebuildClient(name) {
     }
 }
 
+// Модальное окно отзыва
 function openRevokeModal(name) {
     if (!name || name === 'undefined') return;
     clientToRevoke = name;
@@ -183,13 +193,14 @@ function closeModal() {
     clientToRevoke = null;
 }
 
+// Подтверждение отзыва
 document.getElementById('modalConfirmBtn').onclick = async function() {
     if (!clientToRevoke) return;
     const nameToSend = clientToRevoke;
     closeModal();
     
     try {
-        const response = await fetch('/api/clients/revoke', {
+        const response = await fetch(`${BASE_PATH}/api/clients/revoke`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify({ name: nameToSend })
@@ -206,11 +217,11 @@ document.getElementById('modalConfirmBtn').onclick = async function() {
     }
 };
 
+// Запуск процесса опроса
 window.onload = function() {
     loadClients();
     checkServiceStatus();
     
-    // Автоматически обновляем и сессии клиентов, и статус демона каждые 10 секунд
     setInterval(function() {
         loadClients();
         checkServiceStatus();
