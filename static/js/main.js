@@ -1,14 +1,70 @@
-// Автоматически определяет базовый префикс (пустой для корня, /openvpn для боевого)
 const BASE_PATH = window.location.pathname.startsWith('/openvpn') ? '/openvpn' : '';
 
 let allClients = [];
 let clientToRevoke = null;
+
+// Вспомогательная функция для проверки авторизации (401)
+function checkAuthResponse(response) {
+    if (response.status === 401) {
+        window.location.href = `${BASE_PATH}/login`;
+        return false;
+    }
+    return true;
+}
+
+// Загрузка логов аудита действий
+async function loadAuditLogs() {
+    try {
+        const response = await fetch(`${BASE_PATH}/api/audit?_=${new Date().getTime()}`);
+        if (!checkAuthResponse(response)) return;
+        
+        const logs = await response.json();
+        renderAuditLogs(logs);
+    } catch (error) {
+        console.error("Ошибка загрузки журнала аудита:", error);
+    }
+}
+
+// Отрисовка таблицы логов аудита
+function renderAuditLogs(logs) {
+    const tbody = document.getElementById('auditTableBody');
+    tbody.innerHTML = '';
+
+    if (logs.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:16px; color:#888;">Журнал пуст</td></tr>`;
+        return;
+    }
+
+    logs.forEach(log => {
+        let actionBadge = `<span class="log-action">${log.action}</span>`;
+        if (log.action.includes('FAIL')) {
+            actionBadge = `<span class="log-action fail" style="background-color:#ef4444; color:white; padding:2px 6px; border-radius:4px; font-size:11px;">${log.action}</span>`;
+        } else if (log.action.includes('CREATE') || log.action.includes('REBUILD')) {
+            actionBadge = `<span class="log-action success" style="background-color:#3b82f6; color:white; padding:2px 6px; border-radius:4px; font-size:11px;">${log.action}</span>`;
+        } else if (log.action.includes('REVOKE')) {
+            actionBadge = `<span class="log-action revoke" style="background-color:#d97706; color:white; padding:2px 6px; border-radius:4px; font-size:11px;">${log.action}</span>`;
+        } else {
+            actionBadge = `<span class="log-action info" style="background-color:#4b5563; color:white; padding:2px 6px; border-radius:4px; font-size:11px;">${log.action}</span>`;
+        }
+
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td style="color:#888; white-space:nowrap; padding:10px 16px;">${log.timestamp}</td>
+            <td style="font-weight:600; padding:10px 16px;">${log.username}</td>
+            <td style="padding:10px 16px;">${actionBadge}</td>
+            <td style="color:#ccc; padding:10px 16px;">${log.details || ''}</td>
+        `;
+        tbody.appendChild(row);
+    });
+}
 
 // Проверка статуса службы OpenVPN
 async function checkServiceStatus() {
     const indicator = document.getElementById('serviceIndicator');
     try {
         const response = await fetch(`${BASE_PATH}/api/service/status?_=${new Date().getTime()}`);
+        if (!checkAuthResponse(response)) return;
+        
         const data = await response.json();
         if (data.status === 'active') {
             indicator.className = 'service-status-badge status-active';
@@ -25,6 +81,8 @@ async function checkServiceStatus() {
 
 // Перезапуск службы OpenVPN
 async function restartService() {
+    if (!confirm('Вы уверены, что хотите перезапустить службу OpenVPN? Это временно прервет связь у всех клиентов!')) return;
+    
     const btn = document.getElementById('serviceRestartBtn');
     const indicator = document.getElementById('serviceIndicator');
     btn.classList.add('spinning');
@@ -33,11 +91,14 @@ async function restartService() {
 
     try {
         const response = await fetch(`${BASE_PATH}/api/service/restart`, { method: 'POST' });
+        if (!checkAuthResponse(response)) return;
+        
         if (response.ok) {
             setTimeout(async () => {
                 await checkServiceStatus();
                 btn.classList.remove('spinning');
-            }, 1500);
+                loadAuditLogs();
+            }, 2000);
         } else {
             alert('Не удалось перезапустить службу OpenVPN');
             btn.classList.remove('spinning');
@@ -54,10 +115,29 @@ async function restartService() {
 async function loadClients() {
     try {
         const response = await fetch(`${BASE_PATH}/api/clients?_=${new Date().getTime()}`);
+        if (!checkAuthResponse(response)) return;
+        
         allClients = await response.json();
         filterClients();
     } catch (error) {
         console.error("Ошибка загрузки данных:", error);
+    }
+}
+
+// Форматирование времени последнего подключения
+function formatLastSeen(val) {
+    if (!val) return `<span style="color:#666; font-style:italic;">Не подключался</span>`;
+    if (val === 'online') {
+        return `<span class="status-badge active" style="background-color: #059669; color: white; animation: pulse 2s infinite;">Онлайн</span>`;
+    }
+    // Форматируем дату для более красивого вывода
+    try {
+        const parts = val.split(' ');
+        const dateParts = parts[0].split('-');
+        const timeParts = parts[1].split(':');
+        return `${dateParts[2]}.${dateParts[1]}.${dateParts[0]} в ${timeParts[0]}:${timeParts[1]}`;
+    } catch {
+        return val;
     }
 }
 
@@ -67,7 +147,7 @@ function renderClients(clients) {
     tbody.innerHTML = '';
 
     if (clients.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding:32px; color:#888;">Клиенты не найдены</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:32px; color:#888;">Клиенты не найдены</td></tr>`;
         return;
     }
 
@@ -75,11 +155,7 @@ function renderClients(clients) {
         let statusBadge = '';
         
         if (client.status === 'Active') {
-            if (client.online) {
-                statusBadge = `<span class="status-badge active" style="background-color: #059669; color: white;">Онлайн</span>`;
-            } else {
-                statusBadge = `<span class="status-badge active">Активен</span>`;
-            }
+            statusBadge = `<span class="status-badge active">Активен</span>`;
         } else {
             statusBadge = `<span class="status-badge revoked">Отозван</span>`;
         }
@@ -87,7 +163,6 @@ function renderClients(clients) {
         const safeName = client.name.replace(/['"]/g, '');
         const isActive = client.status === 'Active';
 
-        // Динамическая ссылка скачивания и экшены с учетом BASE_PATH
         const actionButtons = isActive 
             ? `<div class="actions-group">
                 <button onclick="rebuildClient('${safeName}')" class="btn-action-rebuild" title="Обновить .ovpn на базе нового common-файла">Пересобрать</button>
@@ -105,6 +180,7 @@ function renderClients(clients) {
         row.innerHTML = `
             <td style="font-family:monospace; font-weight:600; padding:14px 24px;">${safeName}</td>
             <td style="padding:14px 24px;">${statusBadge}</td>
+            <td style="padding:14px 24px;">${formatLastSeen(client.last_seen)}</td>
             <td class="text-right" style="padding:14px 24px;">${actionButtons}</td>
         `;
         tbody.appendChild(row);
@@ -143,6 +219,8 @@ async function createClient() {
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify({ name: name })
         });
+        
+        if (!checkAuthResponse(response)) return;
         const result = await response.json();
         
         if (response.ok) {
@@ -150,6 +228,7 @@ async function createClient() {
             msg.innerText = `Конфигурация ${result.client} успешно выпущена.`;
             input.value = '';
             loadClients();
+            loadAuditLogs();
         } else {
             msg.style.color = "#ef4444";
             msg.innerText = `Ошибка: ${result.error}`;
@@ -169,8 +248,12 @@ async function rebuildClient(name) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: name })
         });
+        
+        if (!checkAuthResponse(response)) return;
+        
         if (response.ok) {
             alert(`Конфиг для ${name} успешно обновлен.`);
+            loadAuditLogs();
         } else {
             const res = await response.json();
             alert(`Ошибка: ${res.error}`);
@@ -206,8 +289,11 @@ document.getElementById('modalConfirmBtn').onclick = async function() {
             body: JSON.stringify({ name: nameToSend })
         });
         
+        if (!checkAuthResponse(response)) return;
+        
         if (response.ok) {
             loadClients();
+            loadAuditLogs();
         } else {
             const res = await response.json();
             alert("Ошибка при отзыве: " + (res.error || 'Неизвестный сбой'));
@@ -217,13 +303,66 @@ document.getElementById('modalConfirmBtn').onclick = async function() {
     }
 };
 
+// Выход из системы
+async function handleLogout() {
+    try {
+        const response = await fetch(`${BASE_PATH}/logout`, {
+            method: 'POST'
+        });
+        if (response.ok) {
+            window.location.href = `${BASE_PATH}/login`;
+        }
+    } catch {
+        alert('Ошибка связи при выходе');
+    }
+}
+
+// Переключение вкладок (Табы)
+let currentTab = 'certificates';
+
+function switchTab(tabName) {
+    currentTab = tabName;
+    
+    const certTabBtn = document.getElementById('tabCertificatesBtn');
+    const auditTabBtn = document.getElementById('tabAuditBtn');
+    const certSection = document.getElementById('certificatesTabSection');
+    const auditSection = document.getElementById('auditTabSection');
+    
+    if (tabName === 'certificates') {
+        certTabBtn.classList.add('active');
+        auditTabBtn.classList.remove('active');
+        certSection.classList.remove('hidden');
+        auditSection.classList.add('hidden');
+        loadClients();
+    } else {
+        certTabBtn.classList.remove('active');
+        auditTabBtn.classList.add('active');
+        certSection.classList.add('hidden');
+        auditSection.classList.remove('hidden');
+        loadAuditLogs();
+    }
+}
+
+// Загрузка текущего пользователя
+function loadCurrentUser() {
+    // В будущем можно запрашивать через эндпоинт, но пока просто сделаем декоративный текст
+    document.getElementById('currentUserSpan').innerText = "Администратор";
+}
+
 // Запуск процесса опроса
 window.onload = function() {
+    loadCurrentUser();
     loadClients();
     checkServiceStatus();
+    loadAuditLogs();
     
+    // Периодическое обновление данных (раз в 10 секунд)
     setInterval(function() {
-        loadClients();
         checkServiceStatus();
+        if (currentTab === 'certificates') {
+            loadClients();
+        } else {
+            loadAuditLogs();
+        }
     }, 10000);
 };

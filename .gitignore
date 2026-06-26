@@ -1,2 +1,22 @@
+# Базы данных SQLite
+*.db
+*.db-journal
+*.db-wal
+
+# Локальные файлы конфигурации (содержат пароли и токены)
+config.json
+config-auth.json
+
+# Кэш Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+
+# Временные файлы ОС
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+
+# Логи
+*.log

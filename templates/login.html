@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VPN Web Panel — Вход</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iI2M1MmYzMSI+PHBhdGggZD0iTTEyIDJMNCA1djZjMCA1LjU1IDMuODQgMTAuNzQgOSAxMiA1LjE2LTEuMjYgOS02LjQ1IDktMTJWNWwtOC0zem0tMiAxMmwtNC00IDEuNDEtMS40MUwxMCAxMS4xTDE3LjU5IDMuNWwxLjQxIDEuNDEtOSA5eiIvPjwvc3ZnPg==" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="login-body">
+
+    <div class="login-wrapper">
+        <div class="login-card glass">
+            <div class="login-header">
+                <div class="logo-box big">V</div>
+                <h2>VPN <span class="accent-text">PANEL</span></h2>
+                <p>Вход в систему управления доступом</p>
+            </div>
+            
+            <form id="loginForm" onsubmit="handleLogin(event)">
+                <div class="form-group">
+                    <label for="username">Имя пользователя</label>
+                    <input type="text" id="username" autocomplete="username" placeholder="Введите имя пользователя" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Пароль</label>
+                    <input type="password" id="password" autocomplete="current-password" placeholder="Введите пароль" required>
+                </div>
+                
+                <button type="submit" id="submitBtn" class="btn-submit wide">Войти</button>
+            </form>
+            
+            <div id="errorMessage" class="error-msg text-center" style="display: none; margin-top: 16px;"></div>
+        </div>
+    </div>
+
+    <script>
+        // Определяем базовый путь как в main.js
+        const BASE_PATH = window.location.pathname.startsWith('/openvpn') ? '/openvpn' : '';
+
+        async function handleLogin(event) {
+            event.preventDefault();
+            const user = document.getElementById('username').value.trim();
+            const pass = document.getElementById('password').value;
+            const errorDiv = document.getElementById('errorMessage');
+            const submitBtn = document.getElementById('submitBtn');
+
+            errorDiv.style.display = 'none';
+            submitBtn.innerText = 'Вход...';
+            submitBtn.disabled = true;
+
+            try {
+                const response = await fetch(`${BASE_PATH}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: user, password: pass })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    window.location.href = `${BASE_PATH}/`;
+                } else {
+                    errorDiv.innerText = result.error || 'Ошибка входа';
+                    errorDiv.style.display = 'block';
+                    submitBtn.innerText = 'Войти';
+                    submitBtn.disabled = false;
+                }
+            } catch (err) {
+                errorDiv.innerText = 'Ошибка соединения с сервером';
+                errorDiv.style.display = 'block';
+                submitBtn.innerText = 'Войти';
+                submitBtn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

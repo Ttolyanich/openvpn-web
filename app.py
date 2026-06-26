@@ -1,9 +1,32 @@
 import os
 import re
 import subprocess
-from flask import Flask, render_template, request, jsonify, send_file, abort
+import sqlite3
+import json
+import time
+from datetime import datetime
+from functools import wraps
+from flask import Flask, render_template, request, jsonify, send_file, abort, redirect, url_for, session
+
+# Загрузка конфигурации
+CONFIG_PATH = os.getenv("OPENVPN_WEB_CONFIG", "/opt/openvpn-web/config.json")
+config = {
+    "mode": "node",
+    "secret_key": "default-secret-key-32-chars-long-please-change",
+    "central_auth_url": "http://127.0.0.1:5001",
+    "node_api_token": "default-token",
+    "bind_host": "0.0.0.0"
+}
+
+if os.path.exists(CONFIG_PATH):
+    try:
+        with open(CONFIG_PATH, "r") as f:
+            config.update(json.load(f))
+    except Exception as e:
+        print(f"Error loading config: {e}")
 
 app = Flask(__name__)
+app.secret_key = config["secret_key"]
 
 # Универсальный middleware для поддержки подпутей (subpath)
 class SubpathMiddleware(object):
@@ -12,7 +35,6 @@ class SubpathMiddleware(object):
         self.prefix = prefix
 
     def __call__(self, environ, start_response):
-        # Если Nginx передал заголовок, используем его, иначе берем дефолтный префикс
         script_name = environ.get('HTTP_X_SCRIPT_NAME', self.prefix)
         if script_name:
             environ['SCRIPT_NAME'] = script_name
@@ -21,7 +43,6 @@ class SubpathMiddleware(object):
                 environ['PATH_INFO'] = path_info[len(script_name):]
         return self.app(environ, start_response)
 
-# По умолчанию на тесте префикс пустой '', на боевом Nginx сам подставит /openvpn
 app.wsgi_app = SubpathMiddleware(app.wsgi_app, prefix='')
 
 EASY_RSA_DIR = "/etc/openvpn/server/easy-rsa"
@@ -30,8 +51,106 @@ CLIENT_COMMON = "/etc/openvpn/server/client-common.txt"
 INDEX_FILE = f"{EASY_RSA_DIR}/pki/index.txt"
 OPENVPN_SERVICE = "openvpn-server@server.service"
 
-# Путь к статус-логу OpenVPN (если у тебя status-server.log, поменяй имя файла ниже)
-STATUS_LOG = "/var/log/openvpn/openvpn-status.log"
+# БД пути
+USERS_DB = "/opt/openvpn-web/users.db"
+NODE_DB = "/opt/openvpn-web/node.db"
+
+# Инициализация баз данных
+def init_db():
+    from werkzeug.security import generate_password_hash
+    if config["mode"] == "auth":
+        conn = sqlite3.connect(USERS_DB)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'admin',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+        
+        # Если пользователей нет, создаем администратора по умолчанию
+        cursor.execute("SELECT COUNT(*) FROM users")
+        if cursor.fetchone()[0] == 0:
+            import string
+            import random
+            chars = string.ascii_letters + string.digits
+            temp_pass = ''.join(random.choice(chars) for _ in range(12))
+            pw_hash = generate_password_hash(temp_pass)
+            cursor.execute("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)", ("admin", pw_hash, "admin"))
+            conn.commit()
+            print("*" * 50)
+            print("INITIALIZATION: Created default admin user!")
+            print("Username: admin")
+            print(f"Password: {temp_pass}")
+            print("*" * 50)
+        conn.close()
+    else:
+        conn = sqlite3.connect(NODE_DB)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS client_activity (
+                common_name TEXT PRIMARY KEY,
+                last_seen TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                username TEXT NOT NULL,
+                action TEXT NOT NULL,
+                details TEXT
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+# Логирование действий пользователей (Audit Log)
+def log_action(username, action, details=""):
+    if config["mode"] != "node":
+        return
+    try:
+        conn = sqlite3.connect(NODE_DB)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO audit_logs (username, action, details) VALUES (?, ?, ?)",
+            (username, action, details)
+        )
+        conn.commit()
+        # Автоматическая очистка: храним только последние 1000 записей
+        cursor.execute("""
+            DELETE FROM audit_logs 
+            WHERE id NOT IN (
+                SELECT id FROM audit_logs 
+                ORDER BY id DESC 
+                LIMIT 1000
+            )
+        """)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Error logging action: {e}")
+
+# Декоратор авторизации
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if config["mode"] == "auth":
+            if not session.get("auth_logged_in"):
+                if request.is_json or request.path.startswith('/api/'):
+                    return jsonify({"error": "Unauthorized"}), 401
+                return redirect(url_for('login'))
+        else:
+            if not session.get("logged_in"):
+                if request.is_json or request.path.startswith('/api/'):
+                    return jsonify({"error": "Unauthorized"}), 401
+                return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
 
 def get_online_clients():
     online_users = set()
@@ -55,7 +174,6 @@ def get_online_clients():
                     if len(parts) > 2:
                         cn = parts[1].strip()
                         if cn and cn != "Common Name" and cn != "UNDEF":
-                            # Сохраняем имя строго в нижнем регистре
                             online_users.add(cn.lower())
     except Exception as e:
         print(f"Error parsing status log: {e}")
@@ -68,6 +186,36 @@ def get_clients():
     
     online_set = get_online_clients()
     
+    # Сохраняем активных клиентов в БД ноды
+    if config["mode"] == "node" and online_set:
+        try:
+            conn = sqlite3.connect(NODE_DB)
+            cursor = conn.cursor()
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            for cn in online_set:
+                cursor.execute("""
+                    INSERT INTO client_activity (common_name, last_seen)
+                    VALUES (?, ?)
+                    ON CONFLICT(common_name) DO UPDATE SET last_seen=excluded.last_seen
+                """, (cn, now_str))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error updating client activity: {e}")
+            
+    # Читаем историю активности
+    last_seen_map = {}
+    if config["mode"] == "node":
+        try:
+            conn = sqlite3.connect(NODE_DB)
+            cursor = conn.cursor()
+            cursor.execute("SELECT common_name, last_seen FROM client_activity")
+            for row in cursor.fetchall():
+                last_seen_map[row[0].lower()] = row[1]
+            conn.close()
+        except Exception as e:
+            print(f"Error reading client activity: {e}")
+            
     with open(INDEX_FILE, "r") as f:
         lines = f.readlines()
         
@@ -81,7 +229,6 @@ def get_clients():
             continue
             
         status = parts[0]
-        
         cn_part = None
         for part in parts:
             if "CN=" in part:
@@ -94,11 +241,19 @@ def get_clients():
         name = cn_part.split("CN=")[-1].strip()
         
         if name != "server":
+            cn_lower = name.lower()
+            is_online = cn_lower in online_set if status == "V" else False
+            
+            if is_online:
+                last_seen_val = "online"
+            else:
+                last_seen_val = last_seen_map.get(cn_lower, None)
+                
             clients.append({
                 "name": name,
                 "status": "Active" if status == "V" else "Revoked",
-                # Сравниваем имя тоже в нижнем регистре
-                "online": name.lower() in online_set if status == "V" else False
+                "online": is_online,
+                "last_seen": last_seen_val
             })
     return clients
 
@@ -138,16 +293,204 @@ def generate_ovpn(client_name):
         print(f"Error generating config: {e}")
         return False
 
+# Главный маршрут
 @app.route('/')
+@login_required
 def index():
+    if config["mode"] == "auth":
+        return render_template('auth_admin.html')
     return render_template('index.html')
 
+# Вход в систему
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    from werkzeug.security import check_password_hash
+    if request.method == 'POST':
+        data = request.json or {}
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+        
+        if not username or not password:
+            return jsonify({"error": "Заполните все поля"}), 400
+            
+        if config["mode"] == "auth":
+            try:
+                conn = sqlite3.connect(USERS_DB)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+                user = cursor.fetchone()
+                conn.close()
+                
+                if user and check_password_hash(user['password_hash'], password):
+                    session["auth_logged_in"] = True
+                    session["username"] = user['username']
+                    return jsonify({"success": True})
+                else:
+                    return jsonify({"error": "Неверный логин или пароль"}), 401
+            except Exception as e:
+                return jsonify({"error": f"Ошибка БД: {e}"}), 500
+        else:
+            import requests
+            central_url = f"{config['central_auth_url'].rstrip('/')}/api/auth/verify"
+            try:
+                resp = requests.post(
+                    central_url,
+                    json={"username": username, "password": password},
+                    headers={"X-Node-Token": config["node_api_token"]},
+                    timeout=5
+                )
+                if resp.status_code == 200:
+                    res_data = resp.json()
+                    if res_data.get("success"):
+                        session["logged_in"] = True
+                        session["username"] = username
+                        log_action(username, "LOGIN", "Успешный вход в систему")
+                        return jsonify({"success": True})
+                
+                error_msg = "Неверный логин или пароль"
+                if resp.status_code != 200:
+                    try:
+                        error_msg = resp.json().get("error", error_msg)
+                    except:
+                        pass
+                log_action(username or "unknown", "LOGIN_FAILED", f"Неудачная попытка входа")
+                return jsonify({"error": error_msg}), 401
+            except requests.exceptions.RequestException as e:
+                print(f"Central auth connection error: {e}")
+                return jsonify({"error": "Центральный сервер авторизации недоступен"}), 503
+                
+    return render_template('login.html')
+
+# Выход из системы
+@app.route('/logout', methods=['POST'])
+def logout():
+    username = session.get("username", "unknown")
+    if config["mode"] == "auth":
+        session.pop("auth_logged_in", None)
+    else:
+        log_action(username, "LOGOUT", "Выход из системы")
+        session.pop("logged_in", None)
+    session.pop("username", None)
+    return jsonify({"success": True})
+
+# Эндпоинт верификации для нод (только на Auth Server)
+@app.route('/api/auth/verify', methods=['POST'])
+def api_auth_verify():
+    from werkzeug.security import check_password_hash
+    if config["mode"] != "auth":
+        return jsonify({"error": "Not Found"}), 404
+        
+    token = request.headers.get("X-Node-Token")
+    if token != config["node_api_token"]:
+        return jsonify({"error": "Unauthorized Node"}), 403
+        
+    data = request.json or {}
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    
+    if not username or not password:
+        return jsonify({"error": "Missing credentials"}), 400
+        
+    try:
+        conn = sqlite3.connect(USERS_DB)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+        user = cursor.fetchone()
+        conn.close()
+        
+        if user and check_password_hash(user['password_hash'], password):
+            return jsonify({"success": True})
+        return jsonify({"success": False, "error": "Неверный логин или пароль"}), 401
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+# API Управления пользователями (только на Auth Server)
+@app.route('/api/users', methods=['GET'])
+@login_required
+def api_get_users():
+    if config["mode"] != "auth":
+        return jsonify({"error": "Not Found"}), 404
+    try:
+        conn = sqlite3.connect(USERS_DB)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, username, role, created_at FROM users")
+        users = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return jsonify(users)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/users', methods=['POST'])
+@login_required
+def api_create_user():
+    from werkzeug.security import generate_password_hash
+    if config["mode"] != "auth":
+        return jsonify({"error": "Not Found"}), 404
+    data = request.json or {}
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    role = data.get('role', 'admin').strip()
+    
+    if not username or not password:
+        return jsonify({"error": "Имя пользователя и пароль обязательны"}), 400
+        
+    pw_hash = generate_password_hash(password)
+    try:
+        conn = sqlite3.connect(USERS_DB)
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)", (username, pw_hash, role))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True})
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Пользователь с таким именем уже существует"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/users/delete/<int:user_id>', methods=['POST'])
+@login_required
+def api_delete_user(user_id):
+    if config["mode"] != "auth":
+        return jsonify({"error": "Not Found"}), 404
+        
+    current_user = session.get("username")
+    try:
+        conn = sqlite3.connect(USERS_DB)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT username FROM users WHERE id = ?", (user_id,))
+        user = cursor.fetchone()
+        if not user:
+            conn.close()
+            return jsonify({"error": "Пользователь не найден"}), 404
+        if user['username'] == current_user:
+            conn.close()
+            return jsonify({"error": "Нельзя удалить самого себя"}), 400
+            
+        cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# API VPN Ноды (только в режиме NODE)
 @app.route('/api/clients', methods=['GET'])
+@login_required
 def api_get_clients():
+    if config["mode"] != "node":
+        return jsonify({"error": "Not Found"}), 404
     return jsonify(get_clients())
 
 @app.route('/api/clients', methods=['POST'])
+@login_required
 def api_create_client():
+    if config["mode"] != "node":
+        return jsonify({"error": "Not Found"}), 404
+        
     data = request.json or {}
     raw_name = data.get('name', '') or ''
     raw_name = raw_name.strip()
@@ -157,6 +500,7 @@ def api_create_client():
     client_name = sanitize_name(raw_name)
     existing_clients = [c['name'] for c in get_clients() if c['status'] == 'Active']
     if client_name in existing_clients:
+        log_action(session.get("username"), "CREATE_CLIENT_FAILED", f"Клиент {client_name} уже существует")
         return jsonify({"error": f"Активный клиент {client_name} уже существует"}), 400
 
     try:
@@ -165,27 +509,41 @@ def api_create_client():
             cwd=EASY_RSA_DIR, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
         if generate_ovpn(client_name):
+            log_action(session.get("username"), "CREATE_CLIENT", f"Выпущен клиент: {client_name}")
             return jsonify({"success": True, "client": client_name})
         else:
+            log_action(session.get("username"), "CREATE_CLIENT_FAILED", f"Ошибка сборки .ovpn для {client_name}")
             return jsonify({"error": "Ошибка при сборке .ovpn файла"}), 500
     except subprocess.CalledProcessError:
+        log_action(session.get("username"), "CREATE_CLIENT_FAILED", f"Ошибка Easy-RSA для {client_name}")
         return jsonify({"error": "Ошибка выполнения Easy-RSA"}), 500
 
 @app.route('/api/clients/rebuild', methods=['POST'])
+@login_required
 def api_rebuild_client():
+    if config["mode"] != "node":
+        return jsonify({"error": "Not Found"}), 404
+        
     data = request.json or {}
     client_name = sanitize_name(data.get('name', '').strip())
     if not client_name:
         return jsonify({"error": "Имя клиента не указано"}), 400
         
     if generate_ovpn(client_name):
+        log_action(session.get("username"), "REBUILD_CLIENT", f"Пересобран конфиг для {client_name}")
         return jsonify({"success": True})
+        
+    log_action(session.get("username"), "REBUILD_CLIENT_FAILED", f"Ошибка пересборки для {client_name}")
     return jsonify({"error": "Не удалось пересобрать конфигурационный файл"}), 500
 
 @app.route('/api/clients/revoke', methods=['POST'])
+@login_required
 def api_revoke_client():
+    if config["mode"] != "node":
+        return jsonify({"error": "Not Found"}), 404
+        
     data = request.get_json(silent=True) or request.json or {}
-    client_name = data.get('name', '').strip()
+    client_name = sanitize_name(data.get('name', '').strip())
     
     if not client_name:
         return jsonify({"error": "Имя клиента не указано"}), 400
@@ -204,34 +562,73 @@ def api_revoke_client():
             if os.path.exists(file_path):
                 os.remove(file_path)
                 
+        log_action(session.get("username"), "REVOKE_CLIENT", f"Отозван клиент: {client_name}")
         return jsonify({"success": True})
     except subprocess.CalledProcessError as e:
         print(f"Subprocess error during revoke: {e}")
+        log_action(session.get("username"), "REVOKE_CLIENT_FAILED", f"Ошибка отзыва клиента: {client_name}")
         return jsonify({"error": "Не удалось отозвать сертификат"}), 500
 
 @app.route('/api/clients/download/<string:client_name>', methods=['GET'])
+@login_required
 def download_config(client_name):
+    if config["mode"] != "node":
+        return jsonify({"error": "Not Found"}), 404
+        
     client_name = sanitize_name(client_name)
     file_path = os.path.join(OUTPUT_DIR, f"{client_name}.ovpn")
     if os.path.exists(file_path):
+        log_action(session.get("username"), "DOWNLOAD_CONFIG", f"Скачан конфиг клиента: {client_name}")
         return send_file(file_path, as_attachment=True)
     else:
         abort(404)
 
 @app.route('/api/service/status', methods=['GET'])
+@login_required
 def service_status():
+    if config["mode"] != "node":
+        return jsonify({"error": "Not Found"}), 404
     res = subprocess.run(["systemctl", "is-active", OPENVPN_SERVICE], capture_output=True, text=True)
     status = res.stdout.strip()
     return jsonify({"status": "active" if status == "active" else "failed"})
 
 @app.route('/api/service/restart', methods=['POST'])
+@login_required
 def service_restart():
+    if config["mode"] != "node":
+        return jsonify({"error": "Not Found"}), 404
     try:
         subprocess.run(["systemctl", "restart", OPENVPN_SERVICE], check=True)
+        log_action(session.get("username"), "RESTART_SERVICE", "Перезапуск службы OpenVPN")
         return jsonify({"success": True})
     except subprocess.CalledProcessError:
+        log_action(session.get("username"), "RESTART_SERVICE_FAILED", "Ошибка перезапуска службы OpenVPN")
         return jsonify({"error": "Не удалось перезапустить службу"}), 500
 
+# Эндпоинт получения логов аудита (только в режиме NODE)
+@app.route('/api/audit', methods=['GET'])
+@login_required
+def api_get_audit():
+    if config["mode"] != "node":
+        return jsonify({"error": "Not Found"}), 404
+    try:
+        conn = sqlite3.connect(NODE_DB)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT timestamp, username, action, details FROM audit_logs ORDER BY id DESC LIMIT 50")
+        logs = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return jsonify(logs)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == '__main__':
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    app.run(host='127.0.0.1', port=5000, debug=False)
+    init_db()
+    if config["mode"] == "node":
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+    # Запускаем Flask
+    # По умолчанию для безопасности 127.0.0.1, Nginx проксирует запросы.
+    # Если это Auth Server, порт по умолчанию 5001 для тестов на одном хосте
+    port = 5001 if config["mode"] == "auth" else 5000
+    bind_host = config.get("bind_host", "0.0.0.0")
+    app.run(host=bind_host, port=port, debug=False)

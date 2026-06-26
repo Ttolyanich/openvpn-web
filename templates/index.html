@@ -6,6 +6,7 @@
     <title>VPN Web Panel</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iI2M1MmYzMSI+PHBhdGggZD0iTTEyIDJMNCA1djZjMCA1LjU1IDMuODQgMTAuNzQgOSAxMiA1LjE2LTEuMjYgOS02LjQ1IDktMTJWNWwtOC0zem0tMiAxMmwtNC00IDEuNDEtMS40MUwxMCAxMS4xTDE3LjU5IDMuNWwxLjQxIDEuNDEtOSA5eiIvPjwvc3ZnPg==" />
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
 
@@ -18,8 +19,12 @@
             <div class="service-control-zone">
                 <div id="serviceIndicator" class="service-status-badge status-loading">Проверка...</div>
                 <button id="serviceRestartBtn" onclick="restartService()" class="btn-service-restart" title="Перезапустить службу OpenVPN">
-                    <svg xmlns="[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
                 </button>
+            </div>
+            <div class="user-profile-zone">
+                <span id="currentUserSpan" class="current-user-name">Загрузка...</span>
+                <button onclick="handleLogout()" class="btn-logout">Выйти</button>
             </div>
         </div>
     </nav>
@@ -43,32 +48,63 @@
             </div>
         </div>
 
-        <div class="panel-card">
-            <div class="card-header table-actions">
-                <h2 class="header-title uppercase-muted">Сертификаты системы</h2>
-                <div class="filter-zone">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="hideRevokedCheck" onchange="filterClients()" checked>
-                        Скрыть отозванные
-                    </label>
-                    <div class="search-wrapper">
-                        <input type="text" id="searchInput" oninput="filterClients()" placeholder="Поиск по имени...">
+        <div class="tabs-container">
+            <button id="tabCertificatesBtn" onclick="switchTab('certificates')" class="tab-btn active">Сертификаты</button>
+            <button id="tabAuditBtn" onclick="switchTab('audit')" class="tab-btn">Журнал действий</button>
+        </div>
+
+        <div id="certificatesTabSection" class="tab-section">
+            <div class="panel-card">
+                <div class="card-header table-actions">
+                    <h2 class="header-title uppercase-muted">Сертификаты системы</h2>
+                    <div class="filter-zone">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="hideRevokedCheck" onchange="filterClients()" checked>
+                            Скрыть отозванные
+                        </label>
+                        <div class="search-wrapper">
+                            <input type="text" id="searchInput" oninput="filterClients()" placeholder="Поиск по имени...">
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <div class="table-wrapper">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Имя клиента (Common Name)</th>
-                            <th>Статус</th>
-                            <th class="text-right">Действия</th>
-                        </tr>
-                    </thead>
-                    <tbody id="clientsTableBody">
+                <div class="table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Имя клиента (Common Name)</th>
+                                <th>Статус</th>
+                                <th>Последняя активность</th>
+                                <th class="text-right">Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="clientsTableBody">
                         </tbody>
-                </table>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="auditTabSection" class="tab-section hidden">
+            <div class="panel-card">
+                <div class="card-header">
+                    <h2 class="header-title uppercase-muted">Журнал действий (Audit Log)</h2>
+                </div>
+                <div class="table-wrapper">
+                    <table class="data-table font-sm">
+                        <thead>
+                            <tr>
+                                <th>Время</th>
+                                <th>Пользователь</th>
+                                <th>Действие</th>
+                                <th>Детали</th>
+                            </tr>
+                        </thead>
+                        <tbody id="auditTableBody">
+                            <tr><td colspan="4" class="text-center" style="padding:16px; color:#888;">Загрузка логов...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
 

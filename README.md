@@ -1,78 +1,137 @@
-# OpenVPN Web Management Panel
+# OpenVPN Web Management Panel with Centralized Auth
 
-<img width="1009" height="497" alt="image" src="https://github.com/user-attachments/assets/fb652bdc-8fb8-40ad-9fbd-8feb74a5257a" />
+Легковесная и современная веб-панель на Python/Flask для управления клиентскими конфигурациями OpenVPN с поддержкой централизованной доменной авторизации (SSO-подобной схемы) для развертывания на нескольких серверах.
 
-Легковесная веб-панель на Python/Flask для управления клиентскими конфигурациями OpenVPN (на базе логики скрипта nyr/openvpn-install). Автоматизирует рутину генерации сертификатов, обеспечивает живой поиск по базе данных Common Name (CN) и позволяет безопасно отзывать доступ.
+---
 
-## Возможности
-* Выпуск `.ovpn` конфигураций в один клик.
-* Автоматическая валидация ввода (замена пробелов на нижнее подчеркивание на лету).
-* Живой поиск по существующим сертификатам.
-* Быстрое скрытие/отображение отозванных клиентов с помощью чекбокса.
-* Полностью автономный адаптивный интерфейс с автоматической поддержкой системной темной/светлой темы (без внешних зависимостей и CDN).
-* Интеграция с systemd и Nginx Reverse Proxy.
+## Архитектура системы
+
+Система состоит из двух ролей, запускаемых из одного кодовой базы (роль переключается в файле настроек `config.json`):
+
+1. **Central Auth Server (Сервер авторизации):**
+   * Хранит общую базу данных пользователей (`users.db`).
+   * Предоставляет Web-интерфейс для добавления/удаления операторов панели (без консоли).
+   * Предоставляет защищенный API-эндпоинт `/api/auth/verify` для проверки учетных данных нод.
+2. **VPN Web Node (Панели управления VPN на серверах):**
+   * Не хранит локальных пользователей. При логине обращается к центральному серверу.
+   * Управляет локальным процессом OpenVPN и Easy-RSA.
+   * Ведет локальный журнал аудита действий операторов (`node.db`).
+   * Отслеживает время последнего подключения клиентов (Last Seen).
+
+---
+
+## Сетевое взаимодействие и безопасность (Аудит безопасности)
+
+По результатам проверки кода и архитектуры выделены следующие ключевые аспекты безопасности:
+
+1. **Защита от SQL-инъекций:** Все SQL-запросы к базам данных SQLite реализованы с использованием параметризованных запросов (`?`), что полностью исключает возможность SQLi.
+2. **Защита от внедрения команд (RCE):** Все вызовы Easy-RSA выполняются через `subprocess.run` в виде списка аргументов (без флага `shell=True`). Параметр имени клиента (`client_name`) принудительно санируется регулярным выражением `[^a-zA-Z0-9_-]`, что делает невозможным внедрение сторонних шелл-команд.
+3. **Безопасность хранения паролей:** Пароли пользователей панели хранятся в зашифрованном виде с использованием криптостойких хешей (Werkzeug PBKDF2/Scrypt).
+4. **Защита от переполнения логов:** Реализована автоочистка локальной базы действий ноды (`node.db`). При каждой записи удаляются все строки, кроме последних 1000 записей. Это защищает сервер от переполнения диска, а браузер — от зависания.
+
+> [!WARNING]
+> **Критическая рекомендация (Шифрование трафика - HTTPS):**
+> По умолчанию бэкенд общается по протоколу HTTP. При деплое в продакшн **крайне важно** настроить Nginx на использование SSL/TLS (HTTPS, например, через Let's Encrypt). Без этого пароли пользователей и секретные токены нод будут передаваться в открытом виде!
+>
+> Также ограничьте доступ к порту `5001` (сервер авторизации) с помощью межсетевого экрана (firewall / nftables), разрешив подключения только с IP-адресов ваших VPN-нод или внутри VPN-подсети.
 
 ---
 
 ## Пошаговое развертывание
 
-### Шаг 1. Предварительная настройка сети (Маршрутизация и NFTables)
-Включите форвардинг пакетов IPv4 на уровне ядра:
+### Шаг 1. Настройка Центрального сервера авторизации (Auth Server)
 
-    echo "net.ipv4.ip_forward=1" > /etc/sysctl.d/forward.conf
-    sysctl -p /etc/sysctl.d/forward.conf
+Разверните эту панель на одном выделенном сервере (это может быть один из ваших VPN-серверов или отдельная виртуалка).
 
-Настройте правила трансляции адресов (NAT/Masquerade) для интерфейса `tun0` через nftables. Отредактируйте `/etc/nftables.conf`:
+1. Склонируйте репозиторий в папку `/opt/openvpn-web`.
+2. Установите зависимости:
+   ```bash
+   apt-get update && apt-get install python3-pip python3-flask python3-requests -y
+   ```
+3. Создайте файл конфигурации `/opt/openvpn-web/config.json`:
+   ```json
+   {
+     "mode": "auth",
+     "secret_key": "сгенерируйте_случайный_ключ_сессии",
+     "bind_host": "0.0.0.0",
+     "node_api_token": "придумайте_секретный_токен_для_связи_нод"
+   }
+   ```
+   *(Параметр `bind_host: "0.0.0.0"` обязателен, чтобы сервер слушал внешние запросы от нод).*
+4. Создайте системную службу systemd для автозапуска. Запишите в `/etc/systemd/system/openvpn-auth.service`:
+   ```ini
+   [Unit]
+   Description=OpenVPN Web Central Auth Server
+   After=network.target
 
-    #!/usr/sbin/nft -f
+   [Service]
+   Type=simple
+   User=root
+   WorkingDirectory=/opt/openvpn-web
+   Environment=OPENVPN_WEB_CONFIG=/opt/openvpn-web/config-auth.json
+   ExecStart=/usr/bin/python3 app.py
+   Restart=always
+   RestartSec=3
 
-    flush ruleset
+   [Install]
+   WantedBy=multi-user.target
+   ```
+   *(Для работы Auth Server скопируйте созданный config.json под именем config-auth.json в папку проекта: `cp config.json config-auth.json`).*
+5. Активируйте и запустите службу:
+   ```bash
+   systemctl daemon-reload
+   systemctl enable --now openvpn-auth
+   ```
+6. Прочитайте сгенерированный пароль для первого входа учетной записи `admin`:
+   ```bash
+   journalctl -u openvpn-auth -n 30 --no-pager
+   ```
+7. Откройте в браузере `http://<IP_АДРЕС_AUTH_СЕРВЕРА>:5001/`, авторизуйтесь (`admin` / `пароль_из_логов`) и создайте аккаунты операторов через веб-интерфейс.
 
-    table ip nat {
-            chain POSTROUTING {
-                    type nat hook postrouting priority srcnat; policy accept;
-                    iifname "tun0" masquerade
-            }
-    }
+---
 
-Активируйте и запустите службу межсетевого экрана:
+### Шаг 2. Настройка VPN-ноды (VPN Node)
 
-    systemctl enable --now nftables
+Повторите эти шаги на каждом VPN-сервере, которым хотите управлять.
 
-### Шаг 2. Инициализация OpenVPN Core
-Запустите базовый инсталлятор OpenVPN передав ему стандартные параметры (Интерфейс, UDP, Порт 1194, Имя первого клиента `client`):
+1. Установите OpenVPN и настройте NFTables/Masquerade (подробно описано в исходном README в репозитории).
+2. Склонируйте репозиторий в папку `/opt/openvpn-web`.
+3. Установите Flask и requests:
+   ```bash
+   apt-get install python3-pip python3-flask python3-requests nginx -y
+   ```
+4. Создайте файл конфигурации `/opt/openvpn-web/config.json`:
+   ```json
+   {
+     "mode": "node",
+     "secret_key": "сгенерируйте_случайный_ключ_сессии_для_ноды",
+     "central_auth_url": "http://<IP_АДРЕС_AUTH_СЕРВЕРА>:5001",
+     "bind_host": "0.0.0.0",
+     "node_api_token": "секретный_токен_для_связи_нод_из_шага_1"
+   }
+   ```
+5. Зарегистрируйте системную службу. Создайте ссылку на юнит-файл:
+   ```bash
+   ln -sf /opt/openvpn-web/openvpn-web.service /etc/systemd/system/openvpn-web.service
+   systemctl daemon-reload
+   systemctl enable --now openvpn-web
+   ```
+6. Настройте Nginx в качестве Reverse Proxy. Запишите в `/etc/nginx/sites-enabled/openvpn-web.conf` (и удалите дефолтный конфиг `rm -f /etc/nginx/sites-enabled/default`):
+   ```nginx
+   server {
+       listen 80;
+       server_name _;
 
-    wget -O /tmp/openvpn.sh https://raw.githubusercontent.com/Ttolyanich/openvpn-web/main/openvpn.sh
-    chmod +x /tmp/openvpn.sh
-    /tmp/openvpn.sh
-
-### Шаг 3. Клонирование и деплой веб-панели
-Склонируйте репозиторий в системную директорию `/opt`:
-
-    cd /opt
-    git clone https://github.com/Ttolyanich/openvpn-web.git
-    cd openvpn-web
-
-Установите пакетный менеджер Python, утилиты авторизации (содержат htpasswd), веб-сервер и глобальные зависимости:
-
-    apt-get update && apt-get install python3-pip python3-flask apache2-utils nginx -y
-    pip3 install -r requirements.txt --break-system-packages
-
-### Шаг 4. Настройка системной службы (systemd)
-Зарегистрируйте юнит-файл в системе и запустите бэкенд:
-
-    ln -sf /opt/openvpn-web/openvpn-web.service /etc/systemd/system/openvpn-web.service
-    systemctl daemon-reload
-    systemctl enable --now openvpn-web
-
-### Шаг 5. Защита и публикация через Nginx (HTTP Basic Auth)
-Для работы утилиты `htpasswd` убедитесь, что на Шаге 3 был установлен пакет `apache2-utils`. 
-Сгенерируйте файл зашифрованных паролей для авторизации (замените `admin` и `ваш_пароль` на свои данные):
-
-    htpasswd -bc /etc/nginx/.vpn_panel_passwd admin ваш_пароль
-
-Привяжите конфигурационный файл виртуального хоста Nginx и перезапустите веб-сервер:
-
-    ln -sf /opt/openvpn-web/nginx-openvpn-web.conf /etc/nginx/sites-enabled/openvpn-web.conf
-    rm -f /etc/nginx/sites-enabled/default
-    systemctl restart nginx
+       location / {
+           proxy_pass http://127.0.0.1:5000;
+           proxy_set_header Host $host;
+           proxy_set_header X-Real-IP $remote_addr;
+           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+       }
+   }
+   ```
+7. Перезапустите Nginx:
+   ```bash
+   systemctl restart nginx
+   ```
+8. Панель ноды готова к работе! Откройте `http://<IP_VPN_СЕРВЕРА>/` и входите под любой учетной записью, созданной на Центральном сервере авторизации.
