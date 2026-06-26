@@ -1,5 +1,8 @@
 # OpenVPN Web Management Panel (Панель управления нодой VPN)
 
+<img width="1182" height="560" alt="image" src="https://github.com/user-attachments/assets/1a38d7e8-b9ef-4fdb-89ba-b41a9f61c5d0" />
+
+
 Данный проект представляет собой легковесную веб-панель на Python/Flask для управления клиентскими конфигурациями OpenVPN, предназначенную для развертывания на VPN-серверах (нодах). Авторизация пользователей полностью делегирована центральному серверу авторизации `centralized-auth` по схеме SSO-подобной проверки по API.
 
 ---
