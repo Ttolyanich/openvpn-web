@@ -285,13 +285,16 @@ def login():
             return jsonify({"error": "Заполните все поля"}), 400
             
         import requests
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         central_url = f"{config['central_auth_url'].rstrip('/')}/api/auth/verify"
         try:
             resp = requests.post(
                 central_url,
                 json={"username": username, "password": password},
                 headers={"X-Node-Token": config["node_api_token"]},
-                timeout=5
+                timeout=5,
+                verify=False
             )
             if resp.status_code == 200:
                 res_data = resp.json()
