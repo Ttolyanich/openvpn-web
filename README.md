@@ -42,7 +42,10 @@
 
 ### Шаг 1. Настройка Центрального сервера авторизации
 Если у вас еще не развернут сервер авторизации:
-1. Разверните репозиторий [centralized-auth](https://github.com/Ttolyanich/centralized-auth) в папку `/opt/centralized-auth` на выделенном сервере (или на одном из VPN-серверов).
+1. Разверните репозиторий [centralized-auth](https://github.com/Ttolyanich/centralized-auth) в папку `/opt/centralized-auth` на выделенном сервере (или на одном из VPN-серверов):
+   ```bash
+   sudo git clone https://github.com/Ttolyanich/centralized-auth.git /opt/centralized-auth
+   ```
 2. Запустите службу `centralized-auth`. Настройте порт `5001` и доступность по сети.
 3. Зайдите в `/opt/centralized-auth/config.json` и скопируйте значения:
    * **`node_api_token`** (секретный токен для проверки запросов нод).
@@ -96,7 +99,10 @@ sudo /tmp/openvpn.sh
 ---
 
 ### Шаг 4. Установка веб-панели управления нодой
-1. Разместите файлы `openvpn-web` в директории `/opt/openvpn-web`.
+1. Склонируйте репозиторий `openvpn-web` в директорию `/opt/openvpn-web`:
+   ```bash
+   sudo git clone https://github.com/Ttolyanich/openvpn-web.git /opt/openvpn-web
+   ```
 2. Установите необходимые зависимости Python:
    ```bash
    sudo apt-get update
