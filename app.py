@@ -25,6 +25,35 @@ if os.path.exists(CONFIG_PATH):
     except Exception as e:
         print(f"Error loading config: {e}")
 
+# Автогенерация secret_key при обнаружении дефолтного значения
+if config.get("secret_key") == "default-secret-key-32-chars-long-please-change" or not config.get("secret_key"):
+    import secrets
+    config["secret_key"] = secrets.token_hex(16)
+    try:
+        with open(CONFIG_PATH, "w") as f:
+            json.dump(config, f, indent=2)
+        print(f"AUTO-CONFIG: Generated secure random secret_key and saved to {CONFIG_PATH}")
+    except Exception as e:
+        print(f"Error saving auto-generated secret key: {e}")
+
+# Автогенерация node_api_token на сервере авторизации при обнаружении дефолтного значения
+if config.get("mode") == "auth" and (config.get("node_api_token") == "default-token" or not config.get("node_api_token")):
+    import secrets
+    config["node_api_token"] = secrets.token_hex(16)
+    try:
+        with open(CONFIG_PATH, "w") as f:
+            json.dump(config, f, indent=2)
+        print(f"AUTO-CONFIG: Generated secure random node_api_token and saved to {CONFIG_PATH}")
+    except Exception as e:
+        print(f"Error saving auto-generated node token: {e}")
+
+# Предупреждение на ноде, если используется дефолтный токен
+if config.get("mode") == "node" and config.get("node_api_token") == "default-token":
+    print("*" * 60)
+    print("WARNING: Node is using default 'node_api_token'!")
+    print("Please set a secure shared token in config.json that matches the Auth Server.")
+    print("*" * 60)
+
 app = Flask(__name__)
 app.secret_key = config["secret_key"]
 
