@@ -1,5 +1,9 @@
 # OpenVPN Web Management Panel with Centralized Auth
 
+<img width="1209" height="509" alt="image" src="https://github.com/user-attachments/assets/53096088-498e-431e-901a-6666802a433e" />
+
+<img width="1202" height="561" alt="image" src="https://github.com/user-attachments/assets/be8823fe-fdb9-4f1e-b93b-14baf55ae0b7" />
+
 Легковесная и современная веб-панель на Python/Flask для управления клиентскими конфигурациями OpenVPN с поддержкой централизованной доменной авторизации (SSO-подобной схемы) для развертывания на нескольких серверах.
 
 ---
