@@ -1,8 +1,5 @@
 # OpenVPN Web Management Panel (Панель управления нодой VPN)
 
-<img width="1182" height="560" alt="image" src="https://github.com/user-attachments/assets/1a38d7e8-b9ef-4fdb-89ba-b41a9f61c5d0" />
-
-
 Данный проект представляет собой легковесную веб-панель на Python/Flask для управления клиентскими конфигурациями OpenVPN, предназначенную для развертывания на VPN-серверах (нодах). Авторизация пользователей полностью делегирована центральному серверу авторизации `centralized-auth` по схеме SSO-подобной проверки по API.
 
 ---
@@ -45,11 +42,11 @@
 
 ### Шаг 1. Настройка Центрального сервера авторизации
 Если у вас еще не развернут сервер авторизации:
-1. Разверните репозиторий [centralized-auth](https://github.com/Ttolyanich/centralized-auth) в папку `/opt/centralized-auth` на выделенном сервере (или на одном из VPN-серверов).
+1. Разверните репозиторий [centralized-auth](https://github.com/<your-github-username>/centralized-auth) в папку `/opt/centralized-auth` на выделенном сервере (или на одном из VPN-серверов).
 2. Запустите службу `centralized-auth`. Настройте порт `5001` и доступность по сети.
 3. Зайдите в `/opt/centralized-auth/config.json` и скопируйте значения:
    * **`node_api_token`** (секретный токен для проверки запросов нод).
-4. Запомните IP-адрес и порт сервера авторизации (например, `http://192.168.102.146:5001`).
+4. Запомните IP-адрес и порт сервера авторизации (например, `http://<IP_АДРЕС_CENTRAL_AUTH>:5001`).
 
 ---
 
@@ -90,7 +87,7 @@
 ### Шаг 3. Установка ядра OpenVPN
 Для установки и базовой настройки сервера OpenVPN выполните скрипт:
 ```bash
-wget -O /tmp/openvpn.sh https://raw.githubusercontent.com/Ttolyanich/openvpn-web/main/openvpn.sh
+wget -O /tmp/openvpn.sh https://raw.githubusercontent.com/<your-github-username>/openvpn-web/main/openvpn.sh
 chmod +x /tmp/openvpn.sh
 sudo /tmp/openvpn.sh
 ```
