@@ -116,13 +116,48 @@
 
 Повторите эти шаги на каждом VPN-сервере, которым хотите управлять.
 
-1. Установите OpenVPN и настройте NFTables/Masquerade (подробно описано в исходном README в репозитории).
-2. Склонируйте репозиторий в папку `/opt/openvpn-web`.
-3. Установите Flask и requests:
+1. **Предварительная настройка сети (Маршрутизация и NFTables):**
+   * Включите пересылку пакетов IPv4 (IP Forwarding) на уровне ядра:
+     ```bash
+     echo "net.ipv4.ip_forward=1" > /etc/sysctl.d/forward.conf
+     sysctl -p /etc/sysctl.d/forward.conf
+     ```
+   * Настройте правила трансляции сетевых адресов (NAT/Masquerade) для туннельного интерфейса `tun0` через nftables. Отредактируйте `/etc/nftables.conf`:
+     ```nftables
+     #!/usr/sbin/nft -f
+
+     flush ruleset
+
+     table ip nat {
+             chain POSTROUTING {
+                     type nat hook postrouting priority srcnat; policy accept;
+                     iifname "tun0" masquerade
+             }
+     }
+     ```
+   * Активируйте и запустите службу межсетевого экрана:
+     ```bash
+     systemctl enable --now nftables
+     ```
+
+2. **Инициализация ядра OpenVPN:**
+   Запустите базовый скрипт-инсталлятор OpenVPN, передав ему стандартные параметры (интерфейс, UDP, порт 1194, первый клиент `client`):
+   ```bash
+   wget -O /tmp/openvpn.sh https://raw.githubusercontent.com/Ttolyanich/openvpn-web/main/openvpn.sh
+   chmod +x /tmp/openvpn.sh
+   /tmp/openvpn.sh
+   ```
+
+3. **Клонирование веб-панели:**
+   Склонируйте репозиторий в папку `/opt/openvpn-web`.
+
+4. **Установка зависимостей:**
+   Установите Flask и requests:
    ```bash
    apt-get install python3-pip python3-flask python3-requests nginx -y
    ```
-4. Создайте файл конфигурации `/opt/openvpn-web/config.json`:
+
+5. **Создание файла конфигурации** `/opt/openvpn-web/config.json`:
    ```json
    {
      "mode": "node",
@@ -132,13 +167,17 @@
      "node_api_token": "секретный_токен_для_связи_нод_из_шага_1"
    }
    ```
-5. Зарегистрируйте системную службу. Создайте ссылку на юнит-файл:
+
+6. **Регистрация системной службы:**
+   Создайте ссылку на юнит-файл:
    ```bash
    ln -sf /opt/openvpn-web/openvpn-web.service /etc/systemd/system/openvpn-web.service
    systemctl daemon-reload
    systemctl enable --now openvpn-web
    ```
-6. Настройте Nginx в качестве Reverse Proxy. Запишите в `/etc/nginx/sites-enabled/openvpn-web.conf` (и удалите дефолтный конфиг `rm -f /etc/nginx/sites-enabled/default`):
+
+7. **Настройка Nginx в качестве Reverse Proxy:**
+   Запишите в `/etc/nginx/sites-enabled/openvpn-web.conf` (и удалите дефолтный конфиг `rm -f /etc/nginx/sites-enabled/default`):
    ```nginx
    server {
        listen 80;
@@ -152,8 +191,11 @@
        }
    }
    ```
-7. Перезапустите Nginx:
+
+8. **Перезапуск веб-сервера:**
    ```bash
    systemctl restart nginx
    ```
-8. Панель ноды готова к работе! Откройте `http://<IP_VPN_СЕРВЕРА>/` и входите под любой учетной записью, созданной на Центральном сервере авторизации.
+
+9. **Готово к использованию:**
+   Откройте `http://<IP_VPN_СЕРВЕРА>/` и входите под любой учетной записью, созданной на Центральном сервере авторизации.
