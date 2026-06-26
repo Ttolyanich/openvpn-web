@@ -42,7 +42,7 @@
 
 ### Шаг 1. Настройка Центрального сервера авторизации
 Если у вас еще не развернут сервер авторизации:
-1. Разверните репозиторий [centralized-auth](https://github.com/<your-github-username>/centralized-auth) в папку `/opt/centralized-auth` на выделенном сервере (или на одном из VPN-серверов).
+1. Разверните репозиторий [centralized-auth](https://github.com/Ttolyanich/centralized-auth) в папку `/opt/centralized-auth` на выделенном сервере (или на одном из VPN-серверов).
 2. Запустите службу `centralized-auth`. Настройте порт `5001` и доступность по сети.
 3. Зайдите в `/opt/centralized-auth/config.json` и скопируйте значения:
    * **`node_api_token`** (секретный токен для проверки запросов нод).
@@ -87,7 +87,7 @@
 ### Шаг 3. Установка ядра OpenVPN
 Для установки и базовой настройки сервера OpenVPN выполните скрипт:
 ```bash
-wget -O /tmp/openvpn.sh https://raw.githubusercontent.com/<your-github-username>/openvpn-web/main/openvpn.sh
+wget -O /tmp/openvpn.sh https://raw.githubusercontent.com/Ttolyanich/openvpn-web/main/openvpn.sh
 chmod +x /tmp/openvpn.sh
 sudo /tmp/openvpn.sh
 ```
