@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VPN Web Panel — Вход</title>
+    <title>OpenVPN Web Panel — Вход</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iI2M1MmYzMSI+PHBhdGggZD0iTTEyIDJMNCA1djZjMCA1LjU1IDMuODQgMTAuNzQgOSAxMiA1LjE2LTEuMjYgOS02LjQ1IDktMTJWNWwtOC0zem0tMiAxMmwtNC00IDEuNDEtMS40MUwxMCAxMS4xTDE3LjU5IDMuNWwxLjQxIDEuNDEtOSA5eiIvPjwvc3ZnPg==" />
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -14,8 +14,8 @@
         <div class="login-card glass">
             <div class="login-header">
                 <div class="logo-box big">V</div>
-                <h2>VPN <span class="accent-text">PANEL</span></h2>
-                <p>Вход в систему управления доступом</p>
+                <h2>VPN <span class="accent-text">NODE</span></h2>
+                <p>Вход в панель управления OpenVPN</p>
             </div>
             
             <form id="loginForm" onsubmit="handleLogin(event)">
@@ -36,7 +36,6 @@
     </div>
 
     <script>
-        // Определяем базовый путь как в main.js
         const BASE_PATH = window.location.pathname.startsWith('/openvpn') ? '/openvpn' : '';
 
         async function handleLogin(event) {
