@@ -7,8 +7,18 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iI2M1MmYzMSI+PHBhdGggZD0iTTEyIDJMNCA1djZjMCA1LjU1IDMuODQgMTAuNzQgOSAxMiA1LjE2LTEuMjYgOS02LjQ1IDktMTJWNWwtOC0zem0tMiAxMmwtNC00IDEuNDEtMS40MUwxMCAxMS4xTDE3LjU5IDMuNWwxLjQxIDEuNDEtOSA5eiIvPjwvc3ZnPg==" />
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
 </head>
 <body class="login-body">
+
+    <button id="themeToggleBtn" onclick="toggleTheme()" class="btn-theme-toggle" style="position: absolute; top: 20px; right: 20px;" title="Переключить тему">
+        <svg id="themeIcon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+    </button>
 
     <div class="login-wrapper">
         <div class="login-card glass">
@@ -37,6 +47,29 @@
 
     <script>
         const BASE_PATH = window.location.pathname.startsWith('/openvpn') ? '/openvpn' : '';
+
+        // Управление темой
+        function updateThemeIcon() {
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+            const themeIcon = document.getElementById('themeIcon');
+            if (!themeIcon) return;
+            
+            if (currentTheme === 'light') {
+                themeIcon.innerHTML = '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>';
+            } else {
+                themeIcon.innerHTML = '<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>';
+            }
+        }
+
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeIcon();
+        }
+
+        updateThemeIcon();
 
         async function handleLogin(event) {
             event.preventDefault();

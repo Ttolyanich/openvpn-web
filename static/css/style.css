@@ -18,6 +18,26 @@
     --warning: #f59e0b;
 }
 
+/* Переменные для светлой темы */
+html[data-theme="light"] {
+    --bg-main: #f4f5f7;
+    --bg-card: #ffffff;
+    --bg-offset: #fafafa;
+    --border-color: rgba(197, 47, 49, 0.15);
+    --border-hover: rgba(197, 47, 49, 0.35);
+    
+    --text-main: #1a1a1e;
+    --text-muted: #65656f;
+    
+    --accent: #c52f31;
+    --accent-hover: #e3474a;
+    --accent-glow: rgba(197, 47, 49, 0.12);
+    
+    --success: #10b981;
+    --danger: #ef4444;
+    --warning: #d97706;
+}
+
 * {
     box-sizing: border-box;
     margin: 0;
@@ -768,4 +788,78 @@ body {
     color: white;
     border-color: var(--accent);
     box-shadow: 0 4px 12px var(--accent-glow);
+}
+
+/* Дополнительные стили для светлой темы */
+html[data-theme="light"] .glass {
+    background: rgba(255, 255, 255, 0.75);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
+}
+
+html[data-theme="light"] .login-body {
+    background: radial-gradient(circle at 10% 20%, rgba(197, 47, 49, 0.06) 0%, rgba(255, 255, 255, 0) 40%),
+                radial-gradient(circle at 90% 80%, rgba(16, 185, 129, 0.04) 0%, rgba(255, 255, 255, 0) 40%),
+                var(--bg-main);
+}
+
+html[data-theme="light"] .navbar {
+    background-color: rgba(255, 255, 255, 0.8);
+}
+
+html[data-theme="light"] .data-table th {
+    background-color: rgba(0, 0, 0, 0.02);
+}
+
+html[data-theme="light"] .data-table tbody tr:hover td {
+    background-color: rgba(0, 0, 0, 0.012);
+}
+
+html[data-theme="light"] .bg-offset {
+    background-color: rgba(0, 0, 0, 0.02);
+}
+
+html[data-theme="light"] .modal-overlay {
+    background-color: rgba(0, 0, 0, 0.4);
+}
+
+html[data-theme="light"] .btn-service-restart:hover {
+    color: var(--accent);
+}
+
+html[data-theme="light"] .highlight-box {
+    background-color: #e9ecef;
+    color: #1a1a1e;
+}
+
+html[data-theme="light"] .accent-text {
+    background: linear-gradient(to right, var(--accent), #7c3aed);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+html[data-theme="light"] .current-user-name {
+    color: var(--text-main);
+}
+
+/* Кнопка переключения темы */
+.btn-theme-toggle {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-right: 8px;
+}
+
+.btn-theme-toggle:hover {
+    border-color: var(--accent);
+    color: var(--text-main);
+    box-shadow: 0 0 8px var(--accent-glow);
 }

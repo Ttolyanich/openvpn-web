@@ -7,6 +7,12 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iI2M1MmYzMSI+PHBhdGggZD0iTTEyIDJMNCA1djZjMCA1LjU1IDMuODQgMTAuNzQgOSAxMiA1LjE2LTEuMjYgOS02LjQ1IDktMTJWNWwtOC0zem0tMiAxMmwtNC00IDEuNDEtMS40MUwxMCAxMS4xTDE3LjU5IDMuNWwxLjQxIDEuNDEtOSA5eiIvPjwvc3ZnPg==" />
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
 </head>
 <body>
 
@@ -23,6 +29,9 @@
                 </button>
             </div>
             <div class="user-profile-zone">
+                <button id="themeToggleBtn" onclick="toggleTheme()" class="btn-theme-toggle" title="Переключить тему">
+                    <svg id="themeIcon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+                </button>
                 <span id="currentUserSpan" class="current-user-name">Загрузка...</span>
                 <button onclick="handleLogout()" class="btn-logout">Выйти</button>
             </div>
