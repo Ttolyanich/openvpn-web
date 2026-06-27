@@ -343,11 +343,7 @@ function switchTab(tabName) {
     }
 }
 
-// Загрузка текущего пользователя
-function loadCurrentUser() {
-    // В будущем можно запрашивать через эндпоинт, но пока просто сделаем декоративный текст
-    document.getElementById('currentUserSpan').innerText = "Администратор";
-}
+
 
 // Управление темой оформления
 function initThemeToggle() {
@@ -379,7 +375,7 @@ function initThemeToggle() {
 
 // Запуск процесса опроса
 window.onload = function() {
-    loadCurrentUser();
+
     loadClients();
     checkServiceStatus();
     loadAuditLogs();

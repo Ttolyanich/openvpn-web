@@ -247,14 +247,16 @@ body {
     display: flex;
     align-items: center;
     gap: 16px;
-    border-left: 1px solid var(--border-color);
-    padding-left: 16px;
 }
 
 .current-user-name {
     font-size: 13px;
     font-weight: 500;
     color: var(--text-muted);
+    background-color: rgba(255, 255, 255, 0.03);
+    padding: 6px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--border-color);
 }
 
 .btn-logout {
