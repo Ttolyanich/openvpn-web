@@ -1101,3 +1101,28 @@ body {
     background-color: #ffffff;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
 }
+
+/* Переопределения инпутов для светлой темы из samba-web */
+.light-theme .form-group input,
+.light-theme .input-wrapper input,
+.light-theme .search-wrapper input,
+.light-theme .form-select,
+.light-theme .select-role,
+.light-theme .select-role-table {
+    background-color: #f1f5f9;
+    color: #0f172a;
+    border-color: rgba(0, 0, 0, 0.08);
+}
+
+.light-theme .form-group input::placeholder,
+.light-theme .input-wrapper input::placeholder,
+.light-theme .search-wrapper input::placeholder {
+    color: #94a3b8;
+}
+
+.light-theme .form-group input:focus,
+.light-theme .input-wrapper input:focus,
+.light-theme .search-wrapper input:focus {
+    border-color: var(--accent);
+    background-color: #ffffff;
+}
