@@ -934,3 +934,132 @@ html[data-theme="light"] .select-role-table option {
     background-color: #ffffff;
     color: #1a1a1e;
 }
+
+/* Кастомный выпадающий список (Custom Select) */
+.custom-select-wrapper {
+    position: relative;
+    width: 100%;
+    user-select: none;
+}
+
+.custom-select-trigger {
+    width: 100%;
+    background-color: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px 16px;
+    color: var(--text-main);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-sizing: border-box;
+}
+
+.custom-select-trigger::after {
+    content: '';
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 5px solid var(--text-muted);
+    transition: transform 0.2s;
+    margin-left: 8px;
+}
+
+.custom-select-wrapper.open .custom-select-trigger {
+    border-color: var(--accent);
+    box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.custom-select-wrapper.open .custom-select-trigger::after {
+    transform: rotate(180deg);
+}
+
+.custom-select-options {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    z-index: 100;
+    display: none;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    box-sizing: border-box;
+}
+
+.custom-select-options.open {
+    display: block;
+    animation: fadeInSlide 0.15s ease-out;
+}
+
+.custom-option {
+    padding: 12px 16px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+    font-size: 14px;
+    text-align: left;
+}
+
+.custom-option:hover {
+    background-color: var(--accent);
+    color: white;
+}
+
+.custom-option.selected {
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.custom-option.selected:hover {
+    color: white;
+}
+
+/* Стилизация выравнивания select в полях с подписью */
+.input-wrapper.wide-label .custom-select-trigger {
+    padding-left: 110px;
+}
+
+/* Для таблицы */
+.table-cell-dropdown .custom-select-trigger {
+    padding: 6px 12px;
+    font-size: 13px;
+    border-radius: 6px;
+    min-width: 140px;
+    text-align: left;
+}
+
+.table-cell-dropdown .custom-option {
+    padding: 8px 12px;
+    font-size: 13px;
+}
+
+.table-cell-dropdown .custom-select-options {
+    top: calc(100% + 4px);
+}
+
+@keyframes fadeInSlide {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Светлая тема */
+html[data-theme="light"] .custom-select-trigger {
+    background-color: #ffffff;
+    color: var(--text-main);
+}
+html[data-theme="light"] .custom-select-options {
+    background-color: #ffffff;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+}
