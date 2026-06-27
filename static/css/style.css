@@ -145,7 +145,8 @@ body {
     border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 12px 16px;
-    color: white;
+    color: var(--text-main);
+    caret-color: var(--text-main);
     font-size: 14px;
     transition: all 0.2s ease;
 }
