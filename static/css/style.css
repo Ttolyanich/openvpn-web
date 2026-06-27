@@ -897,3 +897,40 @@ html[data-theme="light"] .select-role option {
     background-color: #ffffff;
     color: #1a1a1e;
 }
+
+/* Выравнивание select в полях с подписью */
+.input-wrapper.wide-label .select-role {
+    padding-left: 110px;
+}
+
+/* Стили для выбора ролей в таблице */
+.select-role-table {
+    background-color: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 10px;
+    color: white;
+    font-size: 13px;
+    outline: none;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.select-role-table:focus {
+    border-color: var(--accent);
+}
+
+.select-role-table option {
+    background-color: var(--bg-card);
+    color: white;
+}
+
+html[data-theme="light"] .select-role-table {
+    background-color: #ffffff;
+    color: #1a1a1e;
+}
+
+html[data-theme="light"] .select-role-table option {
+    background-color: #ffffff;
+    color: #1a1a1e;
+}
