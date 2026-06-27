@@ -4,6 +4,7 @@ import subprocess
 import sqlite3
 import json
 import time
+import socket
 from datetime import datetime
 from functools import wraps
 from flask import Flask, render_template, request, jsonify, send_file, abort, redirect, url_for, session
@@ -41,6 +42,8 @@ if config.get("node_api_token") == "default-token":
     print("WARNING: Node is using default 'node_api_token'!")
     print("Please set a secure shared token in config.json that matches the Auth Server.")
     print("*" * 60)
+
+NODE_NAME = config.get("node_name", socket.gethostname())
 
 app = Flask(__name__)
 app.secret_key = config["secret_key"]
@@ -271,7 +274,7 @@ def generate_ovpn(client_name):
 @app.route('/')
 @login_required
 def index():
-    return render_template('index.html')
+    return render_template('index.html', node_name=NODE_NAME)
 
 # Вход в систему
 @app.route('/login', methods=['GET', 'POST'])
@@ -316,7 +319,7 @@ def login():
             print(f"Central auth connection error: {e}")
             return jsonify({"error": "Центральный сервер авторизации недоступен"}), 503
             
-    return render_template('login.html')
+    return render_template('login.html', node_name=NODE_NAME)
 
 # Выход из системы
 @app.route('/logout', methods=['POST'])
