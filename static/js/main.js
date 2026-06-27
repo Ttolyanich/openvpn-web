@@ -350,28 +350,31 @@ function loadCurrentUser() {
 }
 
 // Управление темой оформления
-function initTheme() {
-    updateThemeIcon();
-}
-
-function updateThemeIcon() {
-    const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
-    const themeIcon = document.getElementById('themeIcon');
-    if (!themeIcon) return;
+function initThemeToggle() {
+    const themeToggleBtn = document.getElementById('theme-toggle');
+    if (!themeToggleBtn) return;
     
-    if (currentTheme === 'light') {
-        themeIcon.innerHTML = '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>';
-    } else {
-        themeIcon.innerHTML = '<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>';
-    }
-}
+    const sunIcon = themeToggleBtn.querySelector('.sun-icon');
+    const moonIcon = themeToggleBtn.querySelector('.moon-icon');
 
-function toggleTheme() {
-    const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
-    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-    document.documentElement.setAttribute('data-theme', newTheme);
-    localStorage.setItem('theme', newTheme);
-    updateThemeIcon();
+    if (document.documentElement.classList.contains('light-theme')) {
+        sunIcon.classList.add('hidden');
+        moonIcon.classList.remove('hidden');
+    }
+
+    themeToggleBtn.addEventListener('click', () => {
+        document.documentElement.classList.toggle('light-theme');
+        const isLight = document.documentElement.classList.contains('light-theme');
+        localStorage.setItem('theme', isLight ? 'light' : 'dark');
+        
+        if (isLight) {
+            sunIcon.classList.add('hidden');
+            moonIcon.classList.remove('hidden');
+        } else {
+            sunIcon.classList.remove('hidden');
+            moonIcon.classList.add('hidden');
+        }
+    });
 }
 
 // Запуск процесса опроса
@@ -380,7 +383,7 @@ window.onload = function() {
     loadClients();
     checkServiceStatus();
     loadAuditLogs();
-    initTheme();
+    initThemeToggle();
     
     // Периодическое обновление данных (раз в 10 секунд)
     setInterval(function() {
