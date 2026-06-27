@@ -863,3 +863,37 @@ html[data-theme="light"] .current-user-name {
     color: var(--text-main);
     box-shadow: 0 0 8px var(--accent-glow);
 }
+
+/* Стили для выбора ролей */
+.select-role {
+    width: 100%;
+    background-color: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px 16px;
+    color: white;
+    font-size: 14px;
+    outline: none;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.select-role:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.select-role option {
+    background-color: var(--bg-card);
+    color: white;
+}
+
+html[data-theme="light"] .select-role {
+    background-color: #ffffff;
+    color: #1a1a1e;
+}
+
+html[data-theme="light"] .select-role option {
+    background-color: #ffffff;
+    color: #1a1a1e;
+}
