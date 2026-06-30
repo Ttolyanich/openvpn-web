@@ -1,7 +1,5 @@
 # OpenVPN Web Management Panel (Панель управления нодой VPN)
 
-<img width="1198" height="569" alt="image" src="https://github.com/user-attachments/assets/95b505c2-ef22-4cdb-89c7-027b7b67cd63" />
-
 Данный проект представляет собой легковесную веб-панель на Python/Flask для управления клиентскими конфигурациями OpenVPN, предназначенную для развертывания на VPN-серверах (нодах). Авторизация пользователей полностью делегирована центральному серверу авторизации `centralized-auth` по схеме SSO-подобной проверки по API.
 
 ---
@@ -100,42 +98,63 @@ sudo /tmp/openvpn.sh
 
 ---
 
-### Шаг 4. Установка веб-панели управления нодой
-1. Склонируйте репозиторий `openvpn-web` в директорию `/opt/openvpn-web`:
+### Шаг 4. Установка и запуск веб-панели ноды
+
+#### Вариант 1. Запуск через Docker (Рекомендуемый)
+
+При запуске через Docker панель изолирована в контейнере, но монтирует папки с конфигурациями OpenVPN и ключами Easy-RSA с хоста, а также использует системную шину D-Bus для управления службой на хосте.
+
+1. **Клонирование репозитория веб-панели:**
+   ```bash
+   sudo git clone https://github.com/Ttolyanich/openvpn-web.git /opt/openvpn-web
+   cd /opt/openvpn-web
+   ```
+2. **Настройка окружения:**
+   Создайте файл `.env` из шаблона:
+   ```bash
+   cp .env.example .env
+   ```
+   Отредактируйте `.env` и укажите параметры (секретный ключ, адрес центра авторизации, токен ноды):
+   ```bash
+   nano .env
+   ```
+3. **Запуск контейнера:**
+   ```bash
+   docker compose up -d --build
+   ```
+   *Все данные (база активности `node.db`, файлы OpenVPN и ключи Easy-RSA) монтируются напрямую с хоста и будут в полной сохранности.*
+
+---
+
+#### Вариант 2. Нативный запуск (через systemd и Nginx)
+
+1. **Клонирование репозитория веб-панели:**
    ```bash
    sudo git clone https://github.com/Ttolyanich/openvpn-web.git /opt/openvpn-web
    ```
-2. Установите необходимые зависимости Python:
+2. **Установка необходимых зависимостей Python и Nginx:**
    ```bash
    sudo apt-get update
    sudo apt-get install python3-pip python3-flask python3-requests nginx -y
    ```
-3. Выдайте права владельца:
+3. **Выдача прав владельца:**
    ```bash
    sudo chown -R root:root /opt/openvpn-web
    ```
+4. **Настройка взаимосвязи с сервером авторизации:**
+   Создайте или отредактируйте файл `/opt/openvpn-web/config.json`:
+   ```json
+   {
+     "secret_key": "сгенерируйте_случайный_ключ_сессии_этой_ноды",
+     "central_auth_url": "http://<IP_АДРЕС_CENTRALIZED_AUTH>:5001",
+     "node_api_token": "<ТОКЕН_ИЗ_КОНФИГУРАЦИИ_СЕРВЕРА_АВТОРИЗАЦИИ>",
+     "bind_host": "0.0.0.0"
+   }
+   ```
+   > [!IMPORTANT]
+   > Значение `"node_api_token"` на ноде должно **символ в символ** совпадать со значением `"node_api_token"` в конфигурационном файле Центрального сервера авторизации. Без этого верификация логинов будет отклонена с ошибкой `403 Forbidden`.
 
----
-
-### Шаг 5. Настройка взаимосвязи с сервером авторизации
-Отредактируйте или создайте файл `/opt/openvpn-web/config.json`:
-```json
-{
-  "secret_key": "сгенерируйте_случайный_ключ_сессии_этой_ноды",
-  "central_auth_url": "http://<IP_АДРЕС_CENTRALIZED_AUTH>:5001",
-  "node_api_token": "<ТОКЕН_ИЗ_ШАГА_1_ИЗ_CONFIG.JSON_СЕРВЕРА_АВТОРИЗАЦИИ>",
-  "bind_host": "0.0.0.0"
-}
-```
-
-> [!IMPORTANT]
-> Значение `"node_api_token"` на ноде должно **символ в символ** совпадать со значением `"node_api_token"` в конфигурационном файле Центрального сервера авторизации. Без этого верификация логинов будет отклонена с ошибкой `403 Forbidden`.
-
----
-
-### Шаг 6. Настройка и автозапуск служб
-
-1. **Регистрация системной службы веб-панели:**
+5. **Настройка автозапуска службы веб-панели:**
    ```bash
    sudo cp /opt/openvpn-web/openvpn-web.service /etc/systemd/system/
    sudo systemctl daemon-reload
@@ -145,10 +164,8 @@ sudo /tmp/openvpn.sh
    ```bash
    sudo systemctl status openvpn-web
    ```
-
-2. **Настройка Nginx в качестве Reverse Proxy:**
-   Настройте проксирование внешнего порта `80` на локальный порт `5000`. 
-   Запишите в `/etc/nginx/sites-enabled/openvpn-web.conf`:
+6. **Настройка Nginx в качестве Reverse Proxy:**
+   Настройте проксирование внешнего порта `80` на локальный порт `5000`. Запишите в `/etc/nginx/sites-enabled/openvpn-web.conf`:
    ```nginx
    server {
        listen 80;
