@@ -25,6 +25,16 @@ if os.path.exists(CONFIG_PATH):
     except Exception as e:
         print(f"Error loading config: {e}")
 
+# Поддержка переменных окружения (Docker)
+if os.getenv("SECRET_KEY"):
+    config["secret_key"] = os.getenv("SECRET_KEY")
+if os.getenv("CENTRAL_AUTH_URL"):
+    config["central_auth_url"] = os.getenv("CENTRAL_AUTH_URL")
+if os.getenv("NODE_API_TOKEN"):
+    config["node_api_token"] = os.getenv("NODE_API_TOKEN")
+if os.getenv("BIND_HOST"):
+    config["bind_host"] = os.getenv("BIND_HOST")
+
 # Автогенерация secret_key при обнаружении дефолтного значения
 if config.get("secret_key") == "default-secret-key-32-chars-long-please-change" or not config.get("secret_key"):
     import secrets
@@ -65,16 +75,19 @@ class SubpathMiddleware(object):
 
 app.wsgi_app = SubpathMiddleware(app.wsgi_app, prefix='')
 
-EASY_RSA_DIR = "/etc/openvpn/server/easy-rsa"
-OUTPUT_DIR = "/root/openvpn"
-CLIENT_COMMON = "/etc/openvpn/server/client-common.txt"
-INDEX_FILE = f"{EASY_RSA_DIR}/pki/index.txt"
-OPENVPN_SERVICE = "openvpn-server@server.service"
+EASY_RSA_DIR = os.getenv("EASY_RSA_DIR", "/etc/openvpn/server/easy-rsa")
+OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/root/openvpn")
+CLIENT_COMMON = os.getenv("CLIENT_COMMON", "/etc/openvpn/server/client-common.txt")
+INDEX_FILE = os.getenv("INDEX_FILE", f"{EASY_RSA_DIR}/pki/index.txt")
+OPENVPN_SERVICE = os.getenv("OPENVPN_SERVICE", "openvpn-server@server.service")
 
-NODE_DB = "/opt/openvpn-web/node.db"
+NODE_DB = os.getenv("DATABASE_PATH", "/opt/openvpn-web/node.db")
 
 # Инициализация базы данных
 def init_db():
+    db_dir = os.path.dirname(NODE_DB)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
     conn = sqlite3.connect(NODE_DB)
     cursor = conn.cursor()
     cursor.execute("""
@@ -459,4 +472,5 @@ if __name__ == '__main__':
     init_db()
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     bind_host = config.get("bind_host", "0.0.0.0")
-    app.run(host=bind_host, port=5000, debug=False)
+    port = int(os.getenv("PORT", 5000))
+    app.run(host=bind_host, port=port, debug=False)

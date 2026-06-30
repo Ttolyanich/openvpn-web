@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  openvpn-web:
+    build: .
+    container_name: openvpn-web
+    restart: unless-stopped
+    ports:
+      - "${PORT:-5000}:${PORT:-5000}"
+    volumes:
+      - ./data:/app/data
+      - /etc/openvpn:/etc/openvpn
+      - /root/openvpn:/root/openvpn
+      - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket
+      - /run/openvpn-server:/run/openvpn-server:ro
+    env_file:
+      - .env
