@@ -83,6 +83,34 @@ OPENVPN_SERVICE = os.getenv("OPENVPN_SERVICE", "openvpn-server@server.service")
 
 NODE_DB = os.getenv("DATABASE_PATH", "/opt/openvpn-web/node.db")
 
+# Вспомогательный метод для работы с systemctl на хост-системе (поддерживает докер-контейнеры через nsenter)
+def run_systemctl(args, check=False, capture_output=False):
+    nsenter_path = None
+    for path in ["/usr/bin/nsenter", "/bin/nsenter"]:
+        if os.path.exists(path):
+            nsenter_path = path
+            break
+
+    if nsenter_path:
+        cmd = [nsenter_path, "-t", "1", "-m", "-u", "-n", "-i", "systemctl"] + args
+        try:
+            env = os.environ.copy()
+            env["SYSTEMD_IGNORE_CHROOT"] = "1"
+            if capture_output:
+                res = subprocess.run(cmd, capture_output=True, text=True, env=env, check=check, timeout=5)
+            else:
+                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, check=check, timeout=5)
+            if "Permission denied" not in (res.stderr or "") and "Could not open" not in (res.stderr or ""):
+                return res
+        except Exception:
+            pass
+
+    # Фолбек на прямой запуск systemctl
+    if capture_output:
+        return subprocess.run(["systemctl"] + args, capture_output=True, text=True, check=check)
+    else:
+        return subprocess.run(["systemctl"] + args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=check)
+
 # Инициализация базы данных
 def init_db():
     db_dir = os.path.dirname(NODE_DB)
@@ -410,7 +438,7 @@ def api_revoke_client():
         subprocess.run(["cp", f"{EASY_RSA_DIR}/pki/crl.pem", "/etc/openvpn/server/crl.pem"], check=True)
         subprocess.run(["chown", "nobody:nogroup", "/etc/openvpn/server/crl.pem"], check=True)
         
-        subprocess.run(["systemctl", "reload", OPENVPN_SERVICE])
+        run_systemctl(["reload", OPENVPN_SERVICE])
 
         for folder, ext in [("reqs", "req"), ("private", "key")]:
             file_path = f"{EASY_RSA_DIR}/pki/{folder}/{client_name}.{ext}"
@@ -438,7 +466,7 @@ def download_config(client_name):
 @app.route('/api/service/status', methods=['GET'])
 @login_required
 def service_status():
-    res = subprocess.run(["systemctl", "is-active", OPENVPN_SERVICE], capture_output=True, text=True)
+    res = run_systemctl(["is-active", OPENVPN_SERVICE], capture_output=True)
     status = res.stdout.strip()
     return jsonify({"status": "active" if status == "active" else "failed"})
 
@@ -446,7 +474,7 @@ def service_status():
 @login_required
 def service_restart():
     try:
-        subprocess.run(["systemctl", "restart", OPENVPN_SERVICE], check=True)
+        run_systemctl(["restart", OPENVPN_SERVICE], check=True)
         log_action(session.get("username"), "RESTART_SERVICE", "Перезапуск службы OpenVPN")
         return jsonify({"success": True})
     except subprocess.CalledProcessError:
