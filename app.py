@@ -5,11 +5,18 @@ import sqlite3
 import json
 import time
 import socket
+import shutil
+import requests
+import urllib3
 from datetime import datetime
 from functools import wraps
 from flask import Flask, render_template, request, jsonify, send_file, abort, redirect, url_for, session
 from werkzeug.middleware.proxy_fix import ProxyFix
 from dotenv import load_dotenv
+
+# Отключение предупреждений об отсутствии SSL-сертификатов
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 
 # Загрузка переменных окружения из .env
 load_dotenv()
@@ -376,9 +383,6 @@ def login():
         if not username or not password:
             return jsonify({"error": "Заполните все поля"}), 400
             
-        import requests
-        import urllib3
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         central_url = f"{config['central_auth_url'].rstrip('/')}/api/auth/verify"
         try:
             resp = requests.post(
@@ -483,8 +487,8 @@ def api_revoke_client():
         subprocess.run(["./easyrsa", "--batch", "revoke", client_name], cwd=EASY_RSA_DIR, check=True)
         subprocess.run(["./easyrsa", "--batch", "--days=3650", "gen-crl"], cwd=EASY_RSA_DIR, check=True)
         
-        subprocess.run(["cp", f"{EASY_RSA_DIR}/pki/crl.pem", "/etc/openvpn/server/crl.pem"], check=True)
-        subprocess.run(["chown", "nobody:nogroup", "/etc/openvpn/server/crl.pem"], check=True)
+        shutil.copy(f"{EASY_RSA_DIR}/pki/crl.pem", "/etc/openvpn/server/crl.pem")
+        shutil.chown("/etc/openvpn/server/crl.pem", user="nobody", group="nogroup")
         
         run_systemctl(["reload", OPENVPN_SERVICE])
 
