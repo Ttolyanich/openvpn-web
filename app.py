@@ -138,6 +138,80 @@ OPENVPN_SERVICE = os.getenv("OPENVPN_SERVICE", "openvpn-server@server.service")
 
 NODE_DB = os.getenv("DATABASE_PATH", "/opt/openvpn-web/node.db")
 
+CCD_DIR = os.getenv("CCD_DIR")  # Может быть None, если CCD не используется
+VPN_SUBNET_PREFIX = os.getenv("VPN_SUBNET_PREFIX", "10.8.0.")
+IPP_FILE = os.getenv("IPP_FILE", "/etc/openvpn/server/ipp.txt")
+
+def get_client_ip(client_name):
+    # 1. Попытка прочитать статический IP из CCD
+    if CCD_DIR and os.path.exists(CCD_DIR):
+        ccd_file = os.path.join(CCD_DIR, client_name)
+        if os.path.exists(ccd_file):
+            try:
+                with open(ccd_file, "r") as f:
+                    content = f.read()
+                # Ищем директиву ifconfig-push <ip> <netmask>
+                match = re.search(r'ifconfig-push\s+([\d\.]+)\s+', content)
+                if match:
+                    return match.group(1)
+            except Exception as e:
+                print(f"Error reading CCD file for {client_name}: {e}")
+                
+    # 2. Фолбек на чтение из ipp.txt
+    if os.path.exists(IPP_FILE):
+        try:
+            with open(IPP_FILE, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        parts = line.split(",")
+                        if len(parts) >= 2 and parts[0].lower() == client_name.lower():
+                            return parts[1]
+        except Exception as e:
+            print(f"Error reading IP from ipp.txt for {client_name}: {e}")
+            
+    return None
+
+def find_free_ip():
+    assigned_ips = set()
+    
+    # Сбор занятых IP из CCD
+    if CCD_DIR and os.path.exists(CCD_DIR):
+        for name in os.listdir(CCD_DIR):
+            file_path = os.path.join(CCD_DIR, name)
+            if os.path.isfile(file_path):
+                # Читаем IP из CCD
+                try:
+                    with open(file_path, "r") as f:
+                        content = f.read()
+                    match = re.search(r'ifconfig-push\s+([\d\.]+)\s+', content)
+                    if match:
+                        assigned_ips.add(match.group(1))
+                except Exception:
+                    pass
+                    
+    # Сбор занятых IP из ipp.txt (если CCD выключен или для обратной совместимости)
+    if os.path.exists(IPP_FILE):
+        try:
+            with open(IPP_FILE, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        parts = line.split(",")
+                        if len(parts) >= 2:
+                            assigned_ips.add(parts[1])
+        except Exception:
+            pass
+            
+    # Поиск первого свободного адреса в диапазоне от .2 до .254
+    for i in range(2, 255):
+        ip = f"{VPN_SUBNET_PREFIX}{i}"
+        if ip not in assigned_ips:
+            return ip
+            
+    return None
+
+
 # Вспомогательный метод для работы с systemctl на хост-системе (поддерживает докер-контейнеры через nsenter)
 def run_systemctl(args, check=False, capture_output=False):
     nsenter_path = None
@@ -322,11 +396,13 @@ def get_clients():
             else:
                 last_seen_val = last_seen_map.get(cn_lower, None)
                 
+            ip_address = get_client_ip(name)
             clients.append({
                 "name": name,
                 "status": "Active" if status == "V" else "Revoked",
                 "online": is_online,
-                "last_seen": last_seen_val
+                "last_seen": last_seen_val,
+                "ip": ip_address or "Dynamic"
             })
     return clients
 
@@ -450,6 +526,19 @@ def api_create_client():
             cwd=EASY_RSA_DIR, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
         if generate_ovpn(client_name):
+            if CCD_DIR:
+                try:
+                    os.makedirs(CCD_DIR, exist_ok=True)
+                    ccd_file = os.path.join(CCD_DIR, client_name)
+                    ip_to_assign = find_free_ip()
+                    if ip_to_assign:
+                        with open(ccd_file, "w") as f:
+                            f.write(f"ifconfig-push {ip_to_assign} 255.255.255.0\n")
+                    else:
+                        print(f"CCD WARNING: Pool exhausted, could not write static IP for {client_name}")
+                except Exception as e:
+                    print(f"CCD ERROR: Failed to write config for {client_name}: {e}")
+                    
             log_action(session.get("username"), "CREATE_CLIENT", f"Выпущен клиент: {client_name}")
             return jsonify({"success": True, "client": client_name})
         else:
@@ -496,6 +585,14 @@ def api_revoke_client():
             file_path = f"{EASY_RSA_DIR}/pki/{folder}/{client_name}.{ext}"
             if os.path.exists(file_path):
                 os.remove(file_path)
+                
+        if CCD_DIR:
+            ccd_file = os.path.join(CCD_DIR, client_name)
+            if os.path.exists(ccd_file):
+                try:
+                    os.remove(ccd_file)
+                except Exception as e:
+                    print(f"CCD ERROR: Failed to delete config for revoked client {client_name}: {e}")
                 
         log_action(session.get("username"), "REVOKE_CLIENT", f"Отозван клиент: {client_name}")
         return jsonify({"success": True})

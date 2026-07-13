@@ -147,7 +147,7 @@ function renderClients(clients) {
     tbody.innerHTML = '';
 
     if (clients.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:32px; color:#888;">Клиенты не найдены</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:32px; color:#888;">Клиенты не найдены</td></tr>`;
         return;
     }
 
@@ -179,6 +179,7 @@ function renderClients(clients) {
 
         row.innerHTML = `
             <td style="font-family:monospace; font-weight:600; padding:14px 24px;">${safeName}</td>
+            <td style="font-family:monospace; padding:14px 24px; color:#a3a3a3;">${client.ip || 'Dynamic'}</td>
             <td style="padding:14px 24px;">${statusBadge}</td>
             <td style="padding:14px 24px;">${formatLastSeen(client.last_seen)}</td>
             <td class="text-right" style="padding:14px 24px;">${actionButtons}</td>
