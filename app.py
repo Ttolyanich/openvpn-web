@@ -1,5 +1,6 @@
 import os
 import re
+import ipaddress
 import subprocess
 import sqlite3
 import json
@@ -139,8 +140,35 @@ OPENVPN_SERVICE = os.getenv("OPENVPN_SERVICE", "openvpn-server@server.service")
 NODE_DB = os.getenv("DATABASE_PATH", "/opt/openvpn-web/node.db")
 
 CCD_DIR = os.getenv("CCD_DIR")  # Может быть None, если CCD не используется
-VPN_SUBNET_PREFIX = os.getenv("VPN_SUBNET_PREFIX", "10.8.0.")
+SERVER_CONF = os.getenv("SERVER_CONF", "/etc/openvpn/server/server.conf")
 IPP_FILE = os.getenv("IPP_FILE", "/etc/openvpn/server/ipp.txt")
+
+def parse_openvpn_server_subnet():
+    if os.path.exists(SERVER_CONF):
+        try:
+            with open(SERVER_CONF, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("server ") and not line.startswith("#"):
+                        parts = line.split()
+                        if len(parts) >= 3:
+                            return parts[1], parts[2]
+        except Exception as e:
+            print(f"Error parsing server.conf subnet: {e}")
+    return "10.8.0.0", "255.255.255.0"
+
+def get_subnet_hosts():
+    subnet_ip, netmask = parse_openvpn_server_subnet()
+    try:
+        network = ipaddress.IPv4Network(f"{subnet_ip}/{netmask}", strict=False)
+        hosts = list(network.hosts())
+        if len(hosts) > 1:
+            # Исключаем первый IP (адрес сервера)
+            return [str(ip) for ip in hosts[1:]]
+        return [str(ip) for ip in hosts]
+    except Exception as e:
+        print(f"Error generating IP list from subnet: {e}")
+    return [f"10.8.0.{i}" for i in range(2, 255)]
 
 def get_client_ip(client_name):
     # 1. Попытка прочитать статический IP из CCD
@@ -203,9 +231,8 @@ def find_free_ip():
         except Exception:
             pass
             
-    # Поиск первого свободного адреса в диапазоне от .2 до .254
-    for i in range(2, 255):
-        ip = f"{VPN_SUBNET_PREFIX}{i}"
+    # Поиск первого свободного адреса в пуле хостов подсети
+    for ip in get_subnet_hosts():
         if ip not in assigned_ips:
             return ip
             
