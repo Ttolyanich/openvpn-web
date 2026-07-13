@@ -292,6 +292,9 @@ def init_db():
     conn.commit()
     conn.close()
 
+# Инициализация базы данных при загрузке модуля
+init_db()
+
 # Логирование действий пользователей (Audit Log)
 def log_action(username, action, details=""):
     try:
