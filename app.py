@@ -170,55 +170,12 @@ def get_subnet_hosts():
         print(f"Error generating IP list from subnet: {e}")
     return [f"10.8.0.{i}" for i in range(2, 255)]
 
-def get_client_ip(client_name):
-    # 1. Попытка прочитать статический IP из CCD
-    if CCD_DIR and os.path.exists(CCD_DIR):
-        ccd_file = os.path.join(CCD_DIR, client_name)
-        if os.path.exists(ccd_file):
-            try:
-                with open(ccd_file, "r") as f:
-                    content = f.read()
-                # Ищем директиву ifconfig-push <ip> <netmask>
-                match = re.search(r'ifconfig-push\s+([\d\.]+)\s+', content)
-                if match:
-                    return match.group(1)
-            except Exception as e:
-                print(f"Error reading CCD file for {client_name}: {e}")
-                
-    # 2. Фолбек на чтение из ipp.txt
-    if os.path.exists(IPP_FILE):
-        try:
-            with open(IPP_FILE, "r") as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        parts = line.split(",")
-                        if len(parts) >= 2 and parts[0].lower() == client_name.lower():
-                            return parts[1]
-        except Exception as e:
-            print(f"Error reading IP from ipp.txt for {client_name}: {e}")
-            
-    return None
+def get_static_ip_map():
+    """Возвращает {имя_клиента_в_нижнем_регистре: ip} за один проход по ipp.txt и CCD.
+    Статический IP из CCD имеет приоритет над динамическим из ipp.txt."""
+    ip_map = {}
 
-def find_free_ip():
-    assigned_ips = set()
-    
-    # Сбор занятых IP из CCD
-    if CCD_DIR and os.path.exists(CCD_DIR):
-        for name in os.listdir(CCD_DIR):
-            file_path = os.path.join(CCD_DIR, name)
-            if os.path.isfile(file_path):
-                # Читаем IP из CCD
-                try:
-                    with open(file_path, "r") as f:
-                        content = f.read()
-                    match = re.search(r'ifconfig-push\s+([\d\.]+)\s+', content)
-                    if match:
-                        assigned_ips.add(match.group(1))
-                except Exception:
-                    pass
-                    
-    # Сбор занятых IP из ipp.txt (если CCD выключен или для обратной совместимости)
+    # Динамические адреса из ipp.txt
     if os.path.exists(IPP_FILE):
         try:
             with open(IPP_FILE, "r") as f:
@@ -227,15 +184,35 @@ def find_free_ip():
                     if line:
                         parts = line.split(",")
                         if len(parts) >= 2:
-                            assigned_ips.add(parts[1])
-        except Exception:
-            pass
-            
+                            ip_map[parts[0].lower()] = parts[1]
+        except Exception as e:
+            print(f"Error reading ipp.txt: {e}")
+
+    # Статические IP из CCD перекрывают ipp.txt
+    if CCD_DIR and os.path.exists(CCD_DIR):
+        for name in os.listdir(CCD_DIR):
+            file_path = os.path.join(CCD_DIR, name)
+            if os.path.isfile(file_path):
+                try:
+                    with open(file_path, "r") as f:
+                        content = f.read()
+                    # Ищем директиву ifconfig-push <ip> <netmask>
+                    match = re.search(r'ifconfig-push\s+([\d\.]+)\s+', content)
+                    if match:
+                        ip_map[name.lower()] = match.group(1)
+                except Exception as e:
+                    print(f"Error reading CCD file for {name}: {e}")
+
+    return ip_map
+
+def find_free_ip():
+    assigned_ips = set(get_static_ip_map().values())
+
     # Поиск первого свободного адреса в пуле хостов подсети
     for ip in get_subnet_hosts():
         if ip not in assigned_ips:
             return ip
-            
+
     return None
 
 
@@ -363,12 +340,13 @@ def get_clients():
         return clients
     
     online_set = get_online_clients()
-    
-    # Сохраняем активных клиентов в БД ноды
-    if online_set:
-        try:
-            conn = sqlite3.connect(NODE_DB)
-            cursor = conn.cursor()
+
+    # Обновляем активность и читаем историю в одном подключении к БД
+    last_seen_map = {}
+    try:
+        conn = sqlite3.connect(NODE_DB)
+        cursor = conn.cursor()
+        if online_set:
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             for cn in online_set:
                 cursor.execute("""
@@ -377,25 +355,18 @@ def get_clients():
                     ON CONFLICT(common_name) DO UPDATE SET last_seen=excluded.last_seen
                 """, (cn, now_str))
             conn.commit()
-            conn.close()
-        except Exception as e:
-            print(f"Error updating client activity: {e}")
-            
-    # Читаем историю активности
-    last_seen_map = {}
-    try:
-        conn = sqlite3.connect(NODE_DB)
-        cursor = conn.cursor()
         cursor.execute("SELECT common_name, last_seen FROM client_activity")
         for row in cursor.fetchall():
             last_seen_map[row[0].lower()] = row[1]
         conn.close()
     except Exception as e:
-        print(f"Error reading client activity: {e}")
+        print(f"Error updating client activity: {e}")
             
+    ip_map = get_static_ip_map()
+
     with open(INDEX_FILE, "r") as f:
         lines = f.readlines()
-        
+
     for line in lines:
         line = line.strip()
         if not line or line.startswith('#'):
@@ -426,7 +397,7 @@ def get_clients():
             else:
                 last_seen_val = last_seen_map.get(cn_lower, None)
                 
-            ip_address = get_client_ip(name)
+            ip_address = ip_map.get(name.lower())
             clients.append({
                 "name": name,
                 "status": "Active" if status == "V" else "Revoked",
