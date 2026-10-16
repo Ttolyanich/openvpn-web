@@ -164,12 +164,14 @@ body {
 }
 
 .nav-container {
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 14px 24px;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 14px 32px;
     display: flex;
     align-items: center;
     justify-content: space-between;
+    box-sizing: border-box;
 }
 
 .brand-zone {
@@ -272,14 +274,15 @@ body {
 
 /* Главная сетка */
 .main-container {
-    max-width: 1200px;
     width: 100%;
-    margin: 32px auto;
-    padding: 0 24px;
+    max-width: 100%;
+    margin: 24px 0;
+    padding: 0 32px;
     display: flex;
     flex-direction: column;
     gap: 24px;
     flex-grow: 1;
+    box-sizing: border-box;
 }
 
 .panel-card {
@@ -456,11 +459,12 @@ body {
 }
 
 .data-table tbody tr:hover td {
-    background-color: rgba(255, 255, 255, 0.015);
+    background-color: var(--bg-offset) !important;
 }
 
 .client-row-interactive:hover td {
-    background-color: rgba(59, 130, 246, 0.08) !important;
+    background-color: var(--bg-offset) !important;
+    cursor: pointer;
 }
 
 .text-right {
@@ -906,8 +910,9 @@ body {
     color: var(--text-muted);
 }
 
-.light-theme .data-table tbody tr:hover td {
-    background-color: rgba(0, 0, 0, 0.02);
+.light-theme .data-table tbody tr:hover td,
+.light-theme .client-row-interactive:hover td {
+    background-color: var(--bg-offset) !important;
 }
 
 .light-theme .bg-offset {
