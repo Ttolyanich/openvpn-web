@@ -927,4 +927,10 @@ def api_get_audit():
 
 if __name__ == '__main__':
     init_db()
-    app.run(host=config["bind_host"], port=config["bind_port"], debug=False)
+    try:
+        from waitress import serve
+        print(f"[WSGI] Starting production multi-threaded Waitress server on {config['bind_host']}:{config['bind_port']}...")
+        serve(app, host=config["bind_host"], port=config["bind_port"], threads=8)
+    except ImportError:
+        app.run(host=config["bind_host"], port=config["bind_port"], debug=False)
+

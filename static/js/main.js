@@ -275,19 +275,26 @@ function renderClients(clients) {
         const actionButtons = isActive 
             ? `<div class="actions-group">
                 <a href="${BASE_PATH}/api/clients/download/${encodeURIComponent(safeName)}" class="btn-action-download" title="Скачать готовый .ovpn файл">Скачать</a>
-                <button onclick="openDetailModal('${safeName}')" class="btn-action-rebuild" style="background: var(--bg-offset); border-color: var(--border-color); color: var(--text-main);" title="Открыть подробную карточку клиента">Карточка</button>
                 <button onclick="openRevokeModal('${safeName}')" class="btn-action-revoke" title="Отозвать сертификат">Отозвать</button>
                </div>`
             : `<div class="text-muted-italic">Отозван</div>`;
 
         const row = document.createElement('tr');
+        row.className = 'client-row-interactive';
+        row.style.cursor = 'pointer';
+        row.title = 'Нажмите, чтобы открыть подробную карточку конфигурации';
+        row.onclick = (e) => {
+            if (e.target.closest('a, button')) return;
+            openDetailModal(safeName);
+        };
+
         if (client.online) {
-            row.style.backgroundColor = 'rgba(16, 185, 129, 0.04)';
+            row.style.backgroundColor = 'rgba(16, 185, 129, 0.06)';
         }
 
         row.innerHTML = `
             <td style="font-family:'JetBrains Mono',monospace; font-weight:600; padding:12px 20px;">
-                <a href="#" onclick="openDetailModal('${safeName}'); return false;" style="color:var(--text-main); text-decoration:none; border-bottom:1px dashed var(--border-color);">${safeName}</a>
+                <span style="color:var(--text-main); font-weight: 700;">${safeName}</span>
             </td>
             <td style="padding:12px 20px;">${platformBadge}</td>
             <td style="padding:12px 20px;">${ipBadge}</td>
@@ -513,24 +520,18 @@ function switchTab(tabName) {
     const auditTabBtn = document.getElementById('tabAuditBtn');
     const certSection = document.getElementById('certificatesTabSection');
     const auditSection = document.getElementById('auditTabSection');
-    const navCertBtn = document.getElementById('navOpenvpnClients');
-    const navAuditBtn = document.getElementById('navOpenvpnAudit');
     
     if (tabName === 'certificates') {
-        if (certTabBtn) certTabBtn.classList.add('active');
-        if (auditTabBtn) auditTabBtn.classList.remove('active');
-        if (navCertBtn) navCertBtn.classList.add('active');
-        if (navAuditBtn) navAuditBtn.classList.remove('active');
-        if (certSection) certSection.classList.remove('hidden');
-        if (auditSection) auditSection.classList.add('hidden');
+        certTabBtn.classList.add('active');
+        auditTabBtn.classList.remove('active');
+        certSection.classList.remove('hidden');
+        auditSection.classList.add('hidden');
         loadClients();
     } else {
-        if (certTabBtn) certTabBtn.classList.remove('active');
-        if (auditTabBtn) auditTabBtn.classList.add('active');
-        if (navCertBtn) navCertBtn.classList.remove('active');
-        if (navAuditBtn) navAuditBtn.classList.add('active');
-        if (certSection) certSection.classList.add('hidden');
-        if (auditSection) auditSection.classList.remove('hidden');
+        certTabBtn.classList.remove('active');
+        auditTabBtn.classList.add('active');
+        certSection.classList.add('hidden');
+        auditSection.classList.remove('hidden');
         loadAuditLogs();
     }
 }

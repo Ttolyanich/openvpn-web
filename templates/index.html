@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <script>
-        const savedTheme = localStorage.getItem('theme') || 'light';
+        const savedTheme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
         if (savedTheme === 'light') {
             document.documentElement.classList.add('light-theme');
         }
@@ -16,84 +16,37 @@
 </head>
 <body>
 
-<div class="app-layout">
-    <!-- Левый сайдбар (Enterprise Navigation) -->
-    <aside class="app-sidebar">
-        <div class="sidebar-brand">
-            <svg class="brand-wave-icon" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M5 20C8 14 12 13 16 16C20 19 24 18 27 12" stroke="#2563eb" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M5 12C8 6 12 5 16 8C20 11 24 10 27 4" stroke="#3b82f6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-        </div>
-        <nav class="sidebar-nav">
-            <a class="nav-item active" id="navOpenvpnClients" onclick="switchTab('certificates')">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>
-                <span>Клиенты VPN</span>
-            </a>
-            <a class="nav-item" onclick="document.getElementById('clientNameInput')?.focus(); document.getElementById('clientNameInput')?.scrollIntoView({behavior:'smooth'});">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
-                <span>Выпустить .ovpn</span>
-            </a>
-            <a class="nav-item" id="navOpenvpnAudit" onclick="switchTab('audit')">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                <span>Журнал действий</span>
-            </a>
-            <a class="nav-item" onclick="restartService()" title="Перезапустить службу OpenVPN на хосте">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                <span>Перезапуск службы</span>
-            </a>
-            <div style="height: 1px; background: var(--border-color); margin: 8px 12px;"></div>
-            <a class="nav-item" href="/samba" target="_blank" title="Открыть Samba Shares Matrix">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-                <span>Samba Shares</span>
-            </a>
-            <a class="nav-item" href="/auth" target="_blank" title="Открыть Central Auth / LDAP Portal">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-                <span>Центр авторизации</span>
-            </a>
-        </nav>
-        <div class="sidebar-footer">
-            <span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">OpenVPN Hub v2.4</span>
-        </div>
-    </aside>
-
-    <!-- Основная рабочая область -->
-    <div class="app-main-area">
-        <header class="app-top-header">
-            <div class="header-left-title">{{ node_name }} — VPN Hub</div>
-            <div class="header-right-actions">
-                <div class="service-control-zone" style="display: flex; align-items: center; gap: 8px;">
-                    <div id="serviceIndicator" class="service-status-badge status-loading" style="padding: 4px 10px; font-size: 11px;">Проверка...</div>
-                    <button id="serviceRestartBtn" onclick="restartService()" class="btn-service-restart" title="Перезапустить службу OpenVPN">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                    </button>
-                </div>
-                <button id="theme-toggle" class="header-icon-btn" title="Сменить тему оформления">
-                    <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
-                    <svg class="moon-icon hidden" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
-                </button>
-                <div class="header-user-badge">
-                    <div class="user-avatar-circle" id="userAvatarText">{{ (session.get('username') or 'A')[0].upper() }}</div>
-                    <span id="currentUserSpan" style="font-size: 13px; font-weight: 600; color: var(--text-main);">{{ session.get('username') }}</span>
-                    <button onclick="handleLogout()" class="header-icon-btn" title="Выйти" style="margin-left: 4px;">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
-                    </button>
-                </div>
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="brand-zone">
+                <div class="logo-box">V</div>
+                <span class="brand-title">OPENVPN <span class="accent-text">GATEWAY</span></span>
             </div>
-        </header>
+            <div class="service-control-zone">
+                <div id="serviceIndicator" class="service-status-badge status-loading">Проверка...</div>
+                <button id="serviceRestartBtn" onclick="restartService()" class="btn-service-restart" title="Перезапустить службу OpenVPN">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                </button>
+            </div>
+            <div class="user-profile-zone">
+                <button id="theme-toggle" class="btn-icon-toggle" title="Переключить тему">
+                    <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+                    <svg class="moon-icon hidden" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+                </button>
+                <span id="currentUserSpan" class="current-user-name">Оператор: {{ session.get('username') }}</span>
+                <button onclick="handleLogout()" class="btn-logout">Выйти</button>
+            </div>
+        </div>
+    </nav>
 
-        <!-- Рабочее пространство: Контент -->
-        <div class="app-content-wrapper">
-            <div class="app-content-body">
-                <div class="breadcrumbs">
-                    <span>Инфраструктура</span> <span class="bc-sep">/</span> <span class="bc-current">OpenVPN Clients Hub</span>
-                </div>
-                <h1 class="page-heading">{{ node_name }} — OpenVPN Access Hub</h1>
+    <main class="main-container">
 
         <!-- Верхние метрики (KPI Cards) -->
         <div class="kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;">
             <div class="panel-card" style="padding: 16px 20px;">
-                <div style="font-size: 13px; color: var(--text-muted); font-weight: 500; margin-bottom: 8px;">Клиенты онлайн</div>
+                <div style="margin-bottom: 8px;">
+                    <span style="font-size: 13px; color: var(--text-muted); font-weight: 500;">Клиенты онлайн</span>
+                </div>
                 <div style="font-size: 20px; font-weight: 800; color: var(--text-main);" id="kpiOnlineClients">
                     — / —
                 </div>
@@ -103,7 +56,9 @@
             </div>
 
             <div class="panel-card" style="padding: 16px 20px;">
-                <div style="font-size: 13px; color: var(--text-muted); font-weight: 500; margin-bottom: 8px;">Пул адресов (CCD)</div>
+                <div style="margin-bottom: 8px;">
+                    <span style="font-size: 13px; color: var(--text-muted); font-weight: 500;">Пул адресов (CCD)</span>
+                </div>
                 <div style="font-size: 16px; font-weight: 700; color: var(--text-main); font-family: 'JetBrains Mono', monospace;" id="kpiSubnet">
                     {{ subnet }}
                 </div>
@@ -113,17 +68,22 @@
             </div>
 
             <div class="panel-card" style="padding: 16px 20px;">
-                <div style="font-size: 13px; color: var(--text-muted); font-weight: 500; margin-bottom: 8px;">Изоляция Windows Wintun</div>
+                <div style="margin-bottom: 8px;">
+                    <span style="font-size: 13px; color: var(--text-muted); font-weight: 500;">Изоляция Windows Wintun</span>
+                </div>
                 <div style="font-size: 16px; font-weight: 700; color: var(--text-main); font-family: 'JetBrains Mono', monospace;">
                     {{ dev_node_prefix }}
                 </div>
                 <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-                    Префикс изолированного dev-node
+                    Мультитуннели без конфликтов
                 </div>
             </div>
 
             <div class="panel-card" style="padding: 16px 20px;">
-                <div style="font-size: 13px; color: var(--text-muted); font-weight: 500; margin-bottom: 8px;">Режим авторизации</div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span style="font-size: 13px; color: var(--text-muted); font-weight: 500;">Режим авторизации</span>
+                    <span style="font-size: 12px; color: var(--text-muted);">{{ node_name }}</span>
+                </div>
                 <div style="font-size: 16px; font-weight: 700; color: var(--text-main);">
                     {% if auth_mode == 'standalone' %}
                         Standalone (Local)
@@ -132,10 +92,9 @@
                     {% endif %}
                 </div>
                 <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-                    {{ node_name }}
+                    Доступ для всех УЗ центра
                 </div>
             </div>
-        </div>
         </div>
         
         <!-- Панель выпуска новой конфигурации -->
@@ -279,10 +238,9 @@
                     </table>
                 </div>
             </div>
-            </div>
         </div>
-    </div>
-</div>
+
+    </main>
 
     <!-- Интерактивная модальная карточка клиента -->
     <div id="clientDetailModal" class="modal-overlay hidden">
