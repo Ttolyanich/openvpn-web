@@ -126,7 +126,7 @@ function renderAuditLogs(logs) {
         if (log.action.includes('FAIL')) {
             actionBadge = `<span class="log-action fail" style="background-color:rgba(239, 68, 68, 0.2); color:#ef4444; border:1px solid rgba(239, 68, 68, 0.3); padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600;">${log.action}</span>`;
         } else if (log.action.includes('CREATE') || log.action.includes('REBUILD')) {
-            actionBadge = `<span class="log-action success" style="background-color:rgba(59, 130, 246, 0.2); color:#3b82f6; border:1px solid rgba(59, 130, 246, 0.3); padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600;">${log.action}</span>`;
+            actionBadge = `<span class="log-action success" style="background-color:rgba(16, 185, 129, 0.15); color:#10b981; border:1px solid rgba(16, 185, 129, 0.3); padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600;">${log.action}</span>`;
         } else if (log.action.includes('REVOKE')) {
             actionBadge = `<span class="log-action revoke" style="background-color:rgba(245, 158, 11, 0.2); color:#f59e0b; border:1px solid rgba(245, 158, 11, 0.3); padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600;">${log.action}</span>`;
         } else {
@@ -426,7 +426,7 @@ async function createClient() {
     const customDevNode = document.getElementById('customDevNodeInput').value.trim();
     const customIp = document.getElementById('customIpInput').value.trim();
 
-    msg.style.color = "#3b82f6";
+    msg.style.color = "var(--text-muted)";
     msg.style.display = "block";
     msg.innerText = "Генерация сертификата и сборка конфигурации на сервере...";
     submitBtn.disabled = true;
