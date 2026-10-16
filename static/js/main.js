@@ -513,18 +513,24 @@ function switchTab(tabName) {
     const auditTabBtn = document.getElementById('tabAuditBtn');
     const certSection = document.getElementById('certificatesTabSection');
     const auditSection = document.getElementById('auditTabSection');
+    const navCertBtn = document.getElementById('navOpenvpnClients');
+    const navAuditBtn = document.getElementById('navOpenvpnAudit');
     
     if (tabName === 'certificates') {
-        certTabBtn.classList.add('active');
-        auditTabBtn.classList.remove('active');
-        certSection.classList.remove('hidden');
-        auditSection.classList.add('hidden');
+        if (certTabBtn) certTabBtn.classList.add('active');
+        if (auditTabBtn) auditTabBtn.classList.remove('active');
+        if (navCertBtn) navCertBtn.classList.add('active');
+        if (navAuditBtn) navAuditBtn.classList.remove('active');
+        if (certSection) certSection.classList.remove('hidden');
+        if (auditSection) auditSection.classList.add('hidden');
         loadClients();
     } else {
-        certTabBtn.classList.remove('active');
-        auditTabBtn.classList.add('active');
-        certSection.classList.add('hidden');
-        auditSection.classList.remove('hidden');
+        if (certTabBtn) certTabBtn.classList.remove('active');
+        if (auditTabBtn) auditTabBtn.classList.add('active');
+        if (navCertBtn) navCertBtn.classList.remove('active');
+        if (navAuditBtn) navAuditBtn.classList.add('active');
+        if (certSection) certSection.classList.add('hidden');
+        if (auditSection) auditSection.classList.remove('hidden');
         loadAuditLogs();
     }
 }
