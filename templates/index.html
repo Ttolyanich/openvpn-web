@@ -131,35 +131,12 @@
                         </button>
                     </div>
 
-                    <!-- Скрытые расширенные параметры с переключателями -->
-                    <div id="advancedOptionsSection" class="hidden" style="display: flex; flex-direction: column; gap: 16px; padding-top: 16px; border-top: 1px dashed var(--border-color);">
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
-                            <!-- Тумблер режима Wintun / dev-node -->
-                            <div>
-                                <label class="form-label">Изоляция Wintun адаптера (директива dev-node)</label>
-                                <div class="segmented-control" id="devNodeModeSwitch" style="width: 100%;">
-                                    <button type="button" class="segment-btn active" data-mode="common" onclick="setDevNodeMode('common')" style="flex: 1; justify-content: center;">
-                                        Общий ({{ dev_node_name }})
-                                    </button>
-                                    <button type="button" class="segment-btn" data-mode="none" onclick="setDevNodeMode('none')" style="flex: 1; justify-content: center;">
-                                        Без dev-node
-                                    </button>
-                                    <button type="button" class="segment-btn" data-mode="custom" onclick="setDevNodeMode('custom')" style="flex: 1; justify-content: center;">
-                                        Свой адаптер
-                                    </button>
-                                </div>
-                                <div id="customDevNodeWrapper" class="hidden" style="margin-top: 8px;">
-                                    <input type="text" id="customDevNodeInput" placeholder="Укажите точное имя dev-node" style="width: 100%; padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-main); font-size: 13px;">
-                                </div>
-                                <span class="field-hint" id="devNodeHint">Общий адаптер "{{ dev_node_name }}" для всех Windows-клиентов (изоляция без конфликтов).</span>
-                            </div>
-
-                            <!-- Назначение статического IP -->
-                            <div>
-                                <label class="form-label">Статический IP-адрес клиента (CCD)</label>
-                                <input type="text" id="customIpInput" placeholder="По умолчанию: автовыбор свободного IP" style="width: 100%; padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-main); font-size: 13px; font-family: monospace;">
-                                <span class="field-hint">Резервируется в ccd/{имя}. Пустое поле = автовыбор следующего свободного IP.</span>
-                            </div>
+                    <!-- Скрытые расширенные параметры -->
+                    <div id="advancedOptionsSection" class="hidden" style="display: flex; flex-direction: column; gap: 12px; padding-top: 16px; border-top: 1px dashed var(--border-color);">
+                        <div style="max-width: 480px;">
+                            <label class="form-label">Статический IP-адрес клиента (CCD)</label>
+                            <input type="text" id="customIpInput" placeholder="По умолчанию: автовыбор свободного IP" style="width: 100%; padding: 10px 14px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-main); font-size: 13px; font-family: monospace;">
+                            <span class="field-hint">Пустое поле = автовыбор свободного IP. Для Windows автоматически применяется общий адаптер "{{ dev_node_name }}".</span>
                         </div>
                     </div>
                 </div>
@@ -183,6 +160,9 @@
                     </div>
 
                     <div class="filter-zone">
+                        <button type="button" onclick="rebuildAllClients()" class="btn-action-rebuild" style="font-size: 12px; padding: 7px 14px; display: inline-flex; align-items: center; gap: 6px;" title="Массово обновить конфигурации всех клиентов Windows с адаптером {{ dev_node_name }}">
+                            ⚡ Обновить все старые конфиги ({{ dev_node_name }})
+                        </button>
                         <label class="checkbox-label">
                             <input type="checkbox" id="hideRevokedCheck" onchange="filterClients()" checked>
                             Скрыть отозванные
@@ -264,7 +244,7 @@
 
     <!-- Интерактивная модальная карточка клиента -->
     <div id="clientDetailModal" class="modal-overlay hidden">
-        <div class="modal-card" style="max-width: 540px;">
+        <div class="modal-card" style="max-width: 560px;">
             <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <span id="detailPlatformIcon" style="font-size: 20px;">🪟</span>
@@ -273,14 +253,30 @@
                 <button onclick="closeDetailModal()" class="btn-icon-toggle" style="border: none;">✕</button>
             </div>
             <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 20px 0;">
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                    <div class="modal-info-box">
-                        <div class="modal-info-label">IP-адрес клиента</div>
-                        <div class="modal-info-val" style="color: var(--accent); font-family: monospace;" id="detailIp">—</div>
+                
+                <!-- Блок редактирования параметров клиента -->
+                <div style="background: var(--bg-offset); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px;">
+                    <div style="font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">
+                        Настройки туннеля и адаптера
                     </div>
-                    <div class="modal-info-box">
-                        <div class="modal-info-label">Интерфейс (dev-node)</div>
-                        <div class="modal-info-val" style="font-family: monospace;" id="detailDevNode">—</div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div>
+                            <label class="form-label" style="font-size: 12px;">Платформа</label>
+                            <select id="detailPlatformSelect" style="width: 100%; padding: 8px 10px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-main); font-size: 13px;">
+                                <option value="windows">🪟 Windows (Wintun)</option>
+                                <option value="linux">🐧 Linux / macOS</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="form-label" style="font-size: 12px;">Интерфейс (dev-node)</label>
+                            <input type="text" id="detailDevNodeInput" placeholder="По умолчанию: {{ dev_node_name }}" style="width: 100%; padding: 8px 10px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-main); font-size: 13px; font-family: monospace;">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="form-label" style="font-size: 12px;">Статический IP-адрес (CCD)</label>
+                        <input type="text" id="detailIpInput" placeholder="Dynamic" style="width: 100%; padding: 8px 10px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-main); font-size: 13px; font-family: monospace;">
                     </div>
                 </div>
 
@@ -302,12 +298,16 @@
                     </div>
                     <div id="detailStatusBadge"></div>
                 </div>
+                
+                <div id="detailActionMsg" class="status-msg" style="display: none;"></div>
             </div>
             <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
-                <button id="detailRebuildBtn" class="btn-action-rebuild" style="padding: 8px 16px;">Пересобрать .ovpn</button>
+                <button onclick="saveAndRebuildClient()" id="detailSaveBtn" class="btn-submit" style="padding: 8px 16px;">
+                    💾 Сохранить и пересобрать .ovpn
+                </button>
                 <div style="display: flex; gap: 8px;">
                     <button onclick="closeDetailModal()" class="btn-text">Закрыть</button>
-                    <a id="detailDownloadBtn" href="#" class="btn-submit" style="padding: 8px 18px; text-decoration: none;">Скачать .ovpn</a>
+                    <a id="detailDownloadBtn" href="#" class="btn-action-download" style="padding: 8px 18px; text-decoration: none; border-radius: 8px; font-size: 13px; font-weight: 600; display: inline-flex; align-items: center;">Скачать .ovpn</a>
                 </div>
             </div>
         </div>

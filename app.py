@@ -377,6 +377,69 @@ def get_static_ip_map():
 
     return ip_map
 
+def sync_existing_clients_meta():
+    """Синхронизирует метаданные всех существующих клиентов из index.txt:
+       - Устанавливает dev-node (ITSG-OVPN) для всех Windows клиентов, у кого оно не задано
+       - Автоматически регистрирует всех существующих клиентов Easy-RSA в базе vpn_clients_meta
+    """
+    try:
+        if not os.path.exists(INDEX_FILE):
+            return
+        dev_node_default = config.get("dev_node_name", config.get("dev_node_prefix", "ITSG-OVPN"))
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Обновляем dev_node для записей, где оно пусто
+        cursor.execute("""
+            UPDATE vpn_clients_meta 
+            SET dev_node = ?
+            WHERE (dev_node IS NULL OR dev_node = '' OR dev_node = '—')
+              AND (platform IS NULL OR platform = 'windows')
+        """, (dev_node_default,))
+        
+        # Считываем всех клиентов из index.txt
+        with open(INDEX_FILE, "r") as f:
+            lines = f.readlines()
+        ip_map = get_static_ip_map()
+        
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            parts = line.split("\t")
+            if len(parts) < 3:
+                continue
+            status = parts[0]
+            cn_part = None
+            for p in parts:
+                if "CN=" in p:
+                    cn_part = p
+                    break
+            if not cn_part:
+                continue
+            name = cn_part.split("CN=")[-1].strip()
+            if name == "server":
+                continue
+            
+            client_status = "Active" if status == "V" else "Revoked"
+            client_ip = ip_map.get(name.lower()) or "Dynamic"
+            created_at = parts[1] if len(parts) > 1 else ""
+            
+            cursor.execute("""
+                INSERT OR IGNORE INTO vpn_clients_meta (client_name, ip_address, created_by, created_at, platform, dev_node, status)
+                VALUES (?, ?, 'system', ?, 'windows', ?, ?)
+            """, (name, client_ip, created_at, dev_node_default, client_status))
+            
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Error syncing existing clients meta: {e}")
+
+try:
+    sync_existing_clients_meta()
+except Exception as e:
+    print(f"Sync meta warning: {e}")
+
 def find_free_ip():
     assigned_ips = set(get_static_ip_map().values())
     for ip in get_subnet_hosts():
@@ -568,6 +631,13 @@ def get_clients():
                 
             ip_address = ip_map.get(cn_lower)
             meta = meta_map.get(cn_lower, {})
+            client_platform = meta.get("platform") or "windows"
+            dev_node_val = meta.get("dev_node")
+            if not dev_node_val or dev_node_val == "—":
+                if client_platform == "windows":
+                    dev_node_val = config.get("dev_node_name", config.get("dev_node_prefix", "ITSG-OVPN"))
+                else:
+                    dev_node_val = "—"
 
             clients.append({
                 "name": name,
@@ -576,9 +646,9 @@ def get_clients():
                 "last_seen": last_seen_val,
                 "ip": ip_address or meta.get("ip_address") or "Dynamic",
                 "created_by": meta.get("created_by") or "system",
-                "created_at": meta.get("created_at") or parts[1] if len(parts) > 1 else "—",
-                "platform": meta.get("platform") or "windows",
-                "dev_node": meta.get("dev_node") or "—"
+                "created_at": meta.get("created_at") or (parts[1] if len(parts) > 1 else "—"),
+                "platform": client_platform,
+                "dev_node": dev_node_val
             })
     return clients
 
@@ -779,6 +849,7 @@ def api_create_client():
         log_action(session.get("username"), "CREATE_CLIENT_FAILED", f"Ошибка Easy-RSA для {client_name}")
         return jsonify({"error": "Ошибка выполнения Easy-RSA"}), 500
 
+@app.route('/api/clients/update', methods=['POST'])
 @app.route('/api/clients/rebuild', methods=['POST'])
 @login_required
 def api_rebuild_client():
@@ -787,27 +858,118 @@ def api_rebuild_client():
     if not client_name:
         return jsonify({"error": "Имя клиента не указано"}), 400
         
+    dev_node_default = config.get("dev_node_name", config.get("dev_node_prefix", "ITSG-OVPN"))
+    
     # Считываем сохраненную платформу и dev-node из метаданных
     platform = "windows"
-    dev_node = None
+    dev_node = dev_node_default
+    current_ip = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT platform, dev_node FROM vpn_clients_meta WHERE client_name = ?", (client_name,))
+        cursor.execute("SELECT platform, dev_node, ip_address FROM vpn_clients_meta WHERE client_name = ?", (client_name,))
         row = cursor.fetchone()
         if row:
             platform = row['platform'] or "windows"
-            dev_node = row['dev_node'] if row['dev_node'] != "—" else None
+            dev_node = row['dev_node'] if row['dev_node'] and row['dev_node'] != "—" else dev_node_default
+            current_ip = row['ip_address']
         conn.close()
     except Exception as e:
         print(f"Error fetching client meta for rebuild: {e}")
 
-    if generate_ovpn(client_name, platform=platform, dev_node=dev_node):
-        log_action(session.get("username"), "REBUILD_CLIENT", f"Пересобран конфиг для {client_name}")
-        return jsonify({"success": True})
+    # Если переданы параметры для изменения
+    if 'platform' in data:
+        platform = data.get('platform', 'windows').lower().strip()
+        if platform not in ['windows', 'linux']:
+            platform = 'windows'
+
+    if 'dev_node' in data:
+        req_dev_node = data.get('dev_node', '').strip()
+        if req_dev_node in ['none', 'откл', 'disable']:
+            dev_node = None
+        elif req_dev_node:
+            dev_node = sanitize_name(req_dev_node)
+        else:
+            dev_node = dev_node_default if platform == 'windows' else None
+
+    if 'ip' in data:
+        new_ip = data.get('ip', '').strip()
+        if new_ip and new_ip.lower() != 'dynamic':
+            current_ip = new_ip
+            if CCD_DIR:
+                try:
+                    os.makedirs(CCD_DIR, exist_ok=True)
+                    ccd_file = os.path.join(CCD_DIR, client_name)
+                    subnet_ip, netmask = parse_openvpn_server_subnet()
+                    with open(ccd_file, "w") as f:
+                        f.write(f"ifconfig-push {current_ip} {netmask}\n")
+                except Exception as e:
+                    print(f"CCD save error: {e}")
+
+    # Обновляем метаданные в БД
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO vpn_clients_meta (client_name, ip_address, platform, dev_node, status)
+            VALUES (?, ?, ?, ?, 'Active')
+            ON CONFLICT(client_name) DO UPDATE SET 
+                ip_address = coalesce(?, ip_address),
+                platform = excluded.platform,
+                dev_node = excluded.dev_node
+        """, (client_name, current_ip, platform, dev_node or "—", current_ip))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"DB update error: {e}")
+
+    if generate_ovpn(client_name, platform=platform, dev_node=dev_node if platform == 'windows' else None):
+        log_action(session.get("username"), "REBUILD_CLIENT", f"Обновлен конфиг для {client_name} (Wintun: {dev_node or 'none'})")
+        return jsonify({
+            "success": True,
+            "client": client_name,
+            "platform": platform,
+            "dev_node": dev_node or "—",
+            "ip": current_ip or "Dynamic"
+        })
         
     log_action(session.get("username"), "REBUILD_CLIENT_FAILED", f"Ошибка пересборки для {client_name}")
     return jsonify({"error": "Не удалось пересобрать конфигурационный файл"}), 500
+
+@app.route('/api/clients/rebuild-all', methods=['POST'])
+@login_required
+def api_rebuild_all_clients():
+    clients = get_clients()
+    active_clients = [c for c in clients if c['status'] == 'Active']
+    dev_node_default = config.get("dev_node_name", config.get("dev_node_prefix", "ITSG-OVPN"))
+    
+    updated_count = 0
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        for c in active_clients:
+            cname = c['name']
+            cursor.execute("SELECT platform, dev_node FROM vpn_clients_meta WHERE client_name = ?", (cname,))
+            row = cursor.fetchone()
+            platform = row['platform'] if row and row['platform'] else c.get('platform', 'windows')
+            dev_node = dev_node_default if platform == 'windows' else None
+            
+            cursor.execute("""
+                INSERT INTO vpn_clients_meta (client_name, platform, dev_node, status)
+                VALUES (?, ?, ?, 'Active')
+                ON CONFLICT(client_name) DO UPDATE SET platform=excluded.platform, dev_node=excluded.dev_node
+            """, (cname, platform, dev_node or "—"))
+            
+            generate_ovpn(cname, platform=platform, dev_node=dev_node)
+            updated_count += 1
+            
+        conn.commit()
+        conn.close()
+        log_action(session.get("username"), "REBUILD_ALL", f"Массовое обновление {updated_count} клиентов с dev-node {dev_node_default}")
+        return jsonify({"success": True, "count": updated_count, "dev_node": dev_node_default})
+    except Exception as e:
+        print(f"Error rebuilding all clients: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/clients/revoke', methods=['POST'])
 @login_required
@@ -866,23 +1028,50 @@ def api_revoke_client():
 @login_required
 def download_config(client_name):
     client_name = sanitize_name(client_name)
+    dev_node_default = config.get("dev_node_name", config.get("dev_node_prefix", "ITSG-OVPN"))
     
-    # 1. Проверяем локальный рабочий каталог CONFIGS_DIR (./data/configs)
+    # 1. Считываем сохраненную платформу и dev-node из метаданных
+    platform = "windows"
+    dev_node = dev_node_default
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT platform, dev_node FROM vpn_clients_meta WHERE client_name = ?", (client_name,))
+        row = cursor.fetchone()
+        if row:
+            platform = row['platform'] or "windows"
+            dev_node = row['dev_node'] if row['dev_node'] and row['dev_node'] != "—" else dev_node_default
+        conn.close()
+    except Exception as e:
+        print(f"Error fetching client meta for download: {e}")
+
     file_path1 = os.path.join(CONFIGS_DIR, f"{client_name}.ovpn")
+    
+    # 2. Проверяем, актуален ли файл на диске:
+    # Если платформа Windows, файл ОБЯЗАН содержать windows-driver wintun и dev-node
+    needs_refresh = False
+    if not os.path.exists(file_path1):
+        needs_refresh = True
+    elif platform == 'windows' and dev_node and dev_node != "—":
+        try:
+            with open(file_path1, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+                if "windows-driver wintun" not in content or f'dev-node "{dev_node}"' not in content:
+                    needs_refresh = True
+        except Exception:
+            needs_refresh = True
+
+    if needs_refresh:
+        generate_ovpn(client_name, platform=platform, dev_node=dev_node if platform == 'windows' else None)
+
     if os.path.exists(file_path1):
         log_action(session.get("username"), "DOWNLOAD_CONFIG", f"Скачан конфиг клиента: {client_name}")
         return send_file(file_path1, as_attachment=True, download_name=f"{client_name}.ovpn")
         
-    # 2. Проверяем OUTPUT_DIR (/root/openvpn)
     file_path2 = os.path.join(OUTPUT_DIR, f"{client_name}.ovpn")
     if os.path.exists(file_path2):
         log_action(session.get("username"), "DOWNLOAD_CONFIG", f"Скачан конфиг клиента: {client_name}")
         return send_file(file_path2, as_attachment=True, download_name=f"{client_name}.ovpn")
-        
-    # 3. Пересобираем на лету
-    if generate_ovpn(client_name):
-        if os.path.exists(file_path1):
-            return send_file(file_path1, as_attachment=True, download_name=f"{client_name}.ovpn")
 
     abort(404)
 

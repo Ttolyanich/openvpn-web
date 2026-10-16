@@ -378,15 +378,35 @@ function filterClients() {
     renderClients(filtered);
 }
 
+let currentDetailClient = null;
+
 // Открытие подробной модальной карточки клиента
 function openDetailModal(name) {
     const client = allClients.find(c => c.name === name);
     if (!client) return;
+    currentDetailClient = client;
+
+    const devDefault = window.DEV_NODE_NAME || 'ITSG-OVPN';
 
     document.getElementById('detailClientName').innerText = client.name;
     document.getElementById('detailPlatformIcon').innerText = client.platform === 'windows' ? '🪟' : '🐧';
-    document.getElementById('detailIp').innerText = client.ip || 'Dynamic';
-    document.getElementById('detailDevNode').innerText = client.dev_node || 'По умолчанию';
+    
+    // Заполняем поля редактирования
+    const platformSelect = document.getElementById('detailPlatformSelect');
+    if (platformSelect) {
+        platformSelect.value = client.platform || 'windows';
+    }
+    
+    const devNodeInput = document.getElementById('detailDevNodeInput');
+    if (devNodeInput) {
+        devNodeInput.value = (client.dev_node && client.dev_node !== '—') ? client.dev_node : devDefault;
+    }
+    
+    const ipInput = document.getElementById('detailIpInput');
+    if (ipInput) {
+        ipInput.value = (client.ip && client.ip !== 'Dynamic') ? client.ip : '';
+    }
+
     document.getElementById('detailCreatedBy').innerText = client.created_by || 'system';
     document.getElementById('detailCreatedAt').innerText = client.created_at || '—';
     document.getElementById('detailLastSeen').innerHTML = formatLastSeen(client.last_seen);
@@ -399,14 +419,98 @@ function openDetailModal(name) {
     const downloadBtn = document.getElementById('detailDownloadBtn');
     downloadBtn.href = `${BASE_PATH}/api/clients/download/${encodeURIComponent(client.name)}`;
 
-    const rebuildBtn = document.getElementById('detailRebuildBtn');
-    rebuildBtn.onclick = () => rebuildClient(client.name);
+    const msgEl = document.getElementById('detailActionMsg');
+    if (msgEl) {
+        msgEl.style.display = 'none';
+        msgEl.innerText = '';
+    }
 
     document.getElementById('clientDetailModal').classList.remove('hidden');
 }
 
 function closeDetailModal() {
     document.getElementById('clientDetailModal').classList.add('hidden');
+    currentDetailClient = null;
+}
+
+// Сохранение отредактированных параметров и пересборка .ovpn
+async function saveAndRebuildClient() {
+    if (!currentDetailClient) return;
+    const name = currentDetailClient.name;
+    const saveBtn = document.getElementById('detailSaveBtn');
+    const msgEl = document.getElementById('detailActionMsg');
+    
+    const platform = document.getElementById('detailPlatformSelect').value;
+    const devNode = document.getElementById('detailDevNodeInput').value.trim();
+    const ip = document.getElementById('detailIpInput').value.trim();
+
+    saveBtn.disabled = true;
+    msgEl.style.display = 'block';
+    msgEl.style.color = 'var(--text-muted)';
+    msgEl.innerText = 'Обновление параметров и пересборка .ovpn...';
+
+    try {
+        const response = await fetch(`${BASE_PATH}/api/clients/update`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: name,
+                platform: platform,
+                dev_node: devNode,
+                ip: ip
+            })
+        });
+
+        if (!checkAuthResponse(response)) return;
+        const res = await response.json();
+
+        if (response.ok) {
+            msgEl.style.color = '#10b981';
+            msgEl.innerText = 'Конфигурация успешно обновлена и готова к скачиванию!';
+            currentDetailClient.platform = res.platform;
+            currentDetailClient.dev_node = res.dev_node;
+            currentDetailClient.ip = res.ip;
+            document.getElementById('detailPlatformIcon').innerText = res.platform === 'windows' ? '🪟' : '🐧';
+            loadClients();
+            loadAuditLogs();
+        } else {
+            msgEl.style.color = '#ef4444';
+            msgEl.innerText = `Ошибка: ${res.error}`;
+        }
+    } catch {
+        msgEl.style.color = '#ef4444';
+        msgEl.innerText = 'Ошибка соединения с сервером.';
+    } finally {
+        saveBtn.disabled = false;
+    }
+}
+
+// Массовое обновление всех старых конфигураций до Wintun dev-node
+async function rebuildAllClients() {
+    const devName = window.DEV_NODE_NAME || 'ITSG-OVPN';
+    if (!confirm(`Обновить все клиентские .ovpn файлы на сервере?\nКаждый Windows-клиент получит директивы "windows-driver wintun" и dev-node "${devName}".`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`${BASE_PATH}/api/clients/rebuild-all`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (!checkAuthResponse(response)) return;
+        const res = await response.json();
+
+        if (response.ok) {
+            alert(`Успешно обновлено ${res.count} конфигураций клиентов. Теперь все они содержат адаптер ${res.dev_node}.`);
+            loadClients();
+            loadAuditLogs();
+        } else {
+            alert(`Ошибка обновления: ${res.error}`);
+        }
+    } catch {
+        alert('Ошибка связи с сервером при массовом обновлении.');
+    }
 }
 
 // Создание нового клиента
@@ -422,8 +526,8 @@ async function createClient() {
         return;
     }
 
-    const customDevNode = document.getElementById('customDevNodeInput').value.trim();
-    const customIp = document.getElementById('customIpInput').value.trim();
+    const customIpInput = document.getElementById('customIpInput');
+    const customIp = customIpInput ? customIpInput.value.trim() : '';
 
     msg.style.color = "var(--text-muted)";
     msg.style.display = "block";
@@ -437,8 +541,6 @@ async function createClient() {
             body: JSON.stringify({ 
                 name: name,
                 platform: selectedPlatform,
-                dev_node_mode: selectedDevNodeMode,
-                dev_node: customDevNode,
                 ip: customIp
             })
         });
@@ -448,10 +550,9 @@ async function createClient() {
         
         if (response.ok) {
             msg.style.color = "#10b981";
-            msg.innerText = `Конфигурация ${result.client} (${result.platform}, IP: ${result.ip || 'Dynamic'}) успешно выпущена.`;
+            msg.innerText = `Конфигурация ${result.client} (${result.platform}, Wintun: ${result.dev_node || 'ITSG-OVPN'}) успешно выпущена.`;
             input.value = '';
-            document.getElementById('customDevNodeInput').value = '';
-            document.getElementById('customIpInput').value = '';
+            if (customIpInput) customIpInput.value = '';
             loadClients();
             loadNodeSettings();
             loadAuditLogs();
@@ -464,30 +565,6 @@ async function createClient() {
         msg.innerText = "Ошибка соединения с сервером.";
     } finally {
         submitBtn.disabled = false;
-    }
-}
-
-// Пересборка конфига .ovpn
-async function rebuildClient(name) {
-    if (!confirm(`Пересобрать .ovpn файл для ${name}?`)) return;
-    try {
-        const response = await fetch(`${BASE_PATH}/api/clients/rebuild`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: name })
-        });
-        
-        if (!checkAuthResponse(response)) return;
-        
-        if (response.ok) {
-            alert(`Конфигурация для ${name} успешно обновлена.`);
-            loadAuditLogs();
-        } else {
-            const res = await response.json();
-            alert(`Ошибка: ${res.error}`);
-        }
-    } catch {
-        alert('Ошибка отправки запроса на сервер.');
     }
 }
 
