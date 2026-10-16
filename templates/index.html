@@ -72,10 +72,10 @@
                     <span style="font-size: 13px; color: var(--text-muted); font-weight: 500;">Изоляция Windows Wintun</span>
                 </div>
                 <div style="font-size: 16px; font-weight: 700; color: var(--text-main); font-family: 'JetBrains Mono', monospace;">
-                    {{ dev_node_prefix }}
+                    {{ dev_node_name }}
                 </div>
                 <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-                    Мультитуннели без конфликтов
+                    Общий сетевой адаптер
                 </div>
             </div>
 
@@ -138,23 +138,20 @@
                             <div>
                                 <label class="form-label">Изоляция Wintun адаптера (директива dev-node)</label>
                                 <div class="segmented-control" id="devNodeModeSwitch" style="width: 100%;">
-                                    <button type="button" class="segment-btn active" data-mode="individual" onclick="setDevNodeMode('individual')" style="flex: 1; justify-content: center;">
-                                        Индивидуальный
-                                    </button>
-                                    <button type="button" class="segment-btn" data-mode="common" onclick="setDevNodeMode('common')" style="flex: 1; justify-content: center;">
-                                        Общий тег
-                                    </button>
-                                    <button type="button" class="segment-btn" data-mode="custom" onclick="setDevNodeMode('custom')" style="flex: 1; justify-content: center;">
-                                        Свой
+                                    <button type="button" class="segment-btn active" data-mode="common" onclick="setDevNodeMode('common')" style="flex: 1; justify-content: center;">
+                                        Общий ({{ dev_node_name }})
                                     </button>
                                     <button type="button" class="segment-btn" data-mode="none" onclick="setDevNodeMode('none')" style="flex: 1; justify-content: center;">
-                                        Откл
+                                        Без dev-node
+                                    </button>
+                                    <button type="button" class="segment-btn" data-mode="custom" onclick="setDevNodeMode('custom')" style="flex: 1; justify-content: center;">
+                                        Свой адаптер
                                     </button>
                                 </div>
                                 <div id="customDevNodeWrapper" class="hidden" style="margin-top: 8px;">
                                     <input type="text" id="customDevNodeInput" placeholder="Укажите точное имя dev-node" style="width: 100%; padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-main); font-size: 13px;">
                                 </div>
-                                <span class="field-hint" id="devNodeHint">Каждому клиенту будет назначен адаптер "ITSG-OVPN_{имя}" для исключения конфликтов одновременных туннелей.</span>
+                                <span class="field-hint" id="devNodeHint">Общий адаптер "{{ dev_node_name }}" для всех Windows-клиентов (изоляция без конфликтов).</span>
                             </div>
 
                             <!-- Назначение статического IP -->
@@ -333,6 +330,9 @@
         </div>
     </div>
 
+    <script>
+        window.DEV_NODE_NAME = "{{ dev_node_name }}";
+    </script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>

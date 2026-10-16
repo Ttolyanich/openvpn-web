@@ -36,8 +36,9 @@ config = {
     "verify_ssl": True,
     # Настройки Wintun и dev-node
     "dev_node_enabled": True,
-    "dev_node_prefix": "ITSG-OVPN",
-    "dev_node_mode": "individual", # "individual" или "shared"
+    "dev_node_name": os.getenv("DEV_NODE_NAME", os.getenv("DEV_NODE_PREFIX", "ITSG-OVPN")),
+    "dev_node_prefix": os.getenv("DEV_NODE_NAME", os.getenv("DEV_NODE_PREFIX", "ITSG-OVPN")),
+    "dev_node_mode": "common", # "common" (общий по умолчанию), "none", "custom"
     "configs_dir": os.getenv("CONFIGS_DIR", "./data/configs")
 }
 
@@ -77,7 +78,11 @@ if os.getenv("VERIFY_SSL"):
     config["verify_ssl"] = os.getenv("VERIFY_SSL").lower() == "true"
 if os.getenv("DEV_NODE_ENABLED"):
     config["dev_node_enabled"] = os.getenv("DEV_NODE_ENABLED").lower() in ["true", "1", "yes"]
-if os.getenv("DEV_NODE_PREFIX"):
+if os.getenv("DEV_NODE_NAME"):
+    config["dev_node_name"] = os.getenv("DEV_NODE_NAME").strip()
+    config["dev_node_prefix"] = os.getenv("DEV_NODE_NAME").strip()
+elif os.getenv("DEV_NODE_PREFIX"):
+    config["dev_node_name"] = os.getenv("DEV_NODE_PREFIX").strip()
     config["dev_node_prefix"] = os.getenv("DEV_NODE_PREFIX").strip()
 if os.getenv("DEV_NODE_MODE"):
     config["dev_node_mode"] = os.getenv("DEV_NODE_MODE").lower().strip()
@@ -453,8 +458,9 @@ def generate_ovpn(client_name, platform='windows', dev_node=None):
         if platform == 'windows':
             platform_directives.append("# Windows Wintun driver and tunnel interface isolation")
             platform_directives.append("windows-driver wintun")
-            if dev_node:
-                platform_directives.append(f'dev-node "{dev_node}"')
+            target_dev_node = dev_node if dev_node is not None else config.get("dev_node_name", "ITSG-OVPN")
+            if target_dev_node and target_dev_node != "none":
+                platform_directives.append(f'dev-node "{target_dev_node}"')
         elif platform == 'linux':
             platform_directives.append("# Linux / macOS native client configuration")
 
@@ -581,12 +587,14 @@ def get_clients():
 @login_required
 def index():
     subnet_ip, netmask = parse_openvpn_server_subnet()
+    dev_node_name = config.get("dev_node_name", config.get("dev_node_prefix", "ITSG-OVPN"))
     return render_template(
         'index.html', 
         node_name=NODE_NAME,
         auth_mode=config.get("auth_mode", "central"),
         subnet=f"{subnet_ip}/{netmask}",
-        dev_node_prefix=config.get("dev_node_prefix", "ITSG-OVPN")
+        dev_node_prefix=dev_node_name,
+        dev_node_name=dev_node_name
     )
 
 # Вход в систему
@@ -695,19 +703,19 @@ def api_create_client():
         log_action(session.get("username"), "CREATE_CLIENT_FAILED", f"Клиент {client_name} уже существует")
         return jsonify({"error": f"Активный клиент {client_name} уже существует"}), 400
 
-    # Определение dev-node для Windows (поддержка тумблеров режимов)
+    # Определение dev-node для Windows (общий вариант как константа / переменная)
     assigned_dev_node = None
-    dev_node_mode = data.get('dev_node_mode', 'individual')
+    dev_node_mode = data.get('dev_node_mode', 'common')
     if platform == 'windows':
         if dev_node_mode == 'none':
             assigned_dev_node = None
         elif dev_node_mode == 'custom' and custom_dev_node:
             assigned_dev_node = sanitize_name(custom_dev_node)
-        elif dev_node_mode == 'common':
-            assigned_dev_node = config.get("dev_node_prefix", "ITSG-OVPN")
-        else: # individual (по умолчанию)
-            prefix = config.get("dev_node_prefix", "ITSG-OVPN")
+        elif dev_node_mode == 'individual':
+            prefix = config.get("dev_node_name", config.get("dev_node_prefix", "ITSG-OVPN"))
             assigned_dev_node = f"{prefix}_{client_name}"
+        else: # common (общий вариант по умолчанию)
+            assigned_dev_node = config.get("dev_node_name", config.get("dev_node_prefix", "ITSG-OVPN"))
 
     # Определение статического IP для CCD
     subnet_ip, netmask = parse_openvpn_server_subnet()
@@ -908,8 +916,9 @@ def api_get_settings():
         "subnet": f"{subnet_ip}/{netmask}",
         "next_free_ip": free_ip,
         "dev_node_enabled": config.get("dev_node_enabled", True),
-        "dev_node_prefix": config.get("dev_node_prefix", "ITSG-OVPN"),
-        "dev_node_mode": config.get("dev_node_mode", "individual")
+        "dev_node_name": config.get("dev_node_name", config.get("dev_node_prefix", "ITSG-OVPN")),
+        "dev_node_prefix": config.get("dev_node_name", config.get("dev_node_prefix", "ITSG-OVPN")),
+        "dev_node_mode": config.get("dev_node_mode", "common")
     })
 
 # Эндпоинт получения логов аудита

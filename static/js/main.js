@@ -35,7 +35,7 @@ async function loadNodeSettings() {
     }
 }
 
-let selectedDevNodeMode = 'individual';
+let selectedDevNodeMode = 'common';
 
 // Переключение платформы при выпуске конфига
 function setPlatform(platform) {
@@ -69,18 +69,17 @@ function setDevNodeMode(mode) {
 function updateDevNodeHint() {
     const hintEl = document.getElementById('devNodeHint');
     if (!hintEl) return;
+    const devName = window.DEV_NODE_NAME || 'ITSG-OVPN';
     if (selectedPlatform === 'linux') {
         hintEl.innerText = 'Для Linux / macOS директива dev-node и драйвер Wintun не используются (нативный tun).';
         return;
     }
-    if (selectedDevNodeMode === 'individual') {
-        hintEl.innerText = 'Каждому клиенту будет назначен адаптер "ITSG-OVPN_{имя}" для исключения конфликтов одновременных туннелей.';
-    } else if (selectedDevNodeMode === 'common') {
-        hintEl.innerText = 'Всем клиентам будет назначаться единый общий адаптер "ITSG-OVPN".';
+    if (selectedDevNodeMode === 'common') {
+        hintEl.innerText = `Всем клиентам Windows назначается общий адаптер "${devName}" (изоляция без конфликтов).`;
     } else if (selectedDevNodeMode === 'custom') {
-        hintEl.innerText = 'Будет использовано указанное вами точное имя dev-node.';
+        hintEl.innerText = 'Будет использовано указанное вами пользовательское имя dev-node.';
     } else {
-        hintEl.innerText = 'Директива dev-node не будет добавлена в .ovpn файл.';
+        hintEl.innerText = 'Директива dev-node не будет добавлена в .ovpn файл (стандартный TAP/TUN).';
     }
 }
 
