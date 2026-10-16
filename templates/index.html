@@ -3,12 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ node_name }} — VPN Web Panel</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iI2M1MmYzMSI+PHBhdGggZD0iTTEyIDJMNCA1djZjMCA1LjU1IDMuODQgMTAuNzQgOSAxMiA1LjE2LTEuMjYgOS02LjQ1IDktMTJWNWwtOC0zem0tMiAxMmwtNC00IDEuNDEtMS40MUwxMCAxMS4xTDE3LjU5IDMuNWwxLjQxIDEuNDEtOSA5eiIvPjwvc3ZnPg==" />
+    <title>{{ node_name }} — VPN Web Management Hub</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iIzNiODJmNiI+PHBhdGggZD0iTTEyIDJMNCA1djZjMCA1LjU1IDMuODQgMTAuNzQgOSAxMiA1LjE2LTEuMjYgOS02LjQ1IDktMTJWNWwtOC0zem0tMiAxMmwtNC00IDEuNDEtMS40MUwxMCAxMS4xTDE3LjU5IDMuNWwxLjQxIDEuNDEtOSA5eiIvPjwvc3ZnPg==" />
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <script>
-        // Немедленно применяем сохраненную тему до отрисовки интерфейса
         const savedTheme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
         if (savedTheme === 'light') {
             document.documentElement.classList.add('light-theme');
@@ -21,7 +20,7 @@
         <div class="nav-container">
             <div class="brand-zone">
                 <div class="logo-box">V</div>
-                <span class="brand-title">VPN <span class="accent-text">PANEL</span></span>
+                <span class="brand-title">OPENVPN <span class="accent-text">GATEWAY</span></span>
             </div>
             <div class="service-control-zone">
                 <div id="serviceIndicator" class="service-status-badge status-loading">Проверка...</div>
@@ -31,9 +30,7 @@
             </div>
             <div class="user-profile-zone">
                 <button id="theme-toggle" class="btn-icon-toggle" title="Переключить тему">
-                    <!-- Sun Icon (shown in dark theme) -->
                     <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
-                    <!-- Moon Icon (shown in light theme) -->
                     <svg class="moon-icon hidden" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
                 </button>
                 <span id="currentUserSpan" class="current-user-name">Оператор: {{ session.get('username') }}</span>
@@ -42,44 +39,149 @@
         </div>
     </nav>
 
-
-
-
     <main class="main-container">
+
+        <!-- Верхние метрики (KPI Cards) -->
+        <div class="kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;">
+            <div class="panel-card" style="padding: 16px 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span style="font-size: 13px; color: var(--text-muted); font-weight: 500;">Клиенты онлайн</span>
+                    <span style="width: 8px; height: 8px; border-radius: 50%; background-color: var(--success); display: inline-block;"></span>
+                </div>
+                <div style="font-size: 20px; font-weight: 800; color: var(--text-main);" id="kpiOnlineClients">
+                    — / —
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;" id="kpiTotalClients">
+                    Всего активных туннелей
+                </div>
+            </div>
+
+            <div class="panel-card" style="padding: 16px 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span style="font-size: 13px; color: var(--text-muted); font-weight: 500;">Пул адресов (CCD)</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent);"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+                </div>
+                <div style="font-size: 16px; font-weight: 700; color: var(--text-main); font-family: 'JetBrains Mono', monospace;" id="kpiSubnet">
+                    {{ subnet }}
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                    Свободный IP: <strong style="color: var(--accent);" id="kpiNextIp">Расчет...</strong>
+                </div>
+            </div>
+
+            <div class="panel-card" style="padding: 16px 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span style="font-size: 13px; color: var(--text-muted); font-weight: 500;">Изоляция Windows Wintun</span>
+                    <span class="service-status-badge status-active" style="padding: 2px 8px; font-size: 11px;">Active</span>
+                </div>
+                <div style="font-size: 16px; font-weight: 700; color: var(--text-main); font-family: 'JetBrains Mono', monospace;">
+                    {{ dev_node_prefix }}
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                    Мультитуннели без конфликтов
+                </div>
+            </div>
+
+            <div class="panel-card" style="padding: 16px 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span style="font-size: 13px; color: var(--text-muted); font-weight: 500;">Режим авторизации</span>
+                    <span style="font-size: 12px; color: var(--text-muted);">{{ node_name }}</span>
+                </div>
+                <div style="font-size: 16px; font-weight: 700; color: var(--text-main);">
+                    {% if auth_mode == 'standalone' %}
+                        Standalone (Local)
+                    {% else %}
+                        Central Auth (SSO)
+                    {% endif %}
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                    Доступ для всех УЗ центра
+                </div>
+            </div>
+        </div>
         
+        <!-- Панель выпуска новой конфигурации -->
         <div class="panel-card">
             <div class="card-header">
-                <h2 class="header-title uppercase-accent">Выпустить конфигурацию</h2>
-                <p class="header-subtitle font-mono">Допустимые символы: a-z, 0-9, _, -</p>
-            </div>
-            <div class="card-body bg-offset">
-                <div class="form-row">
-                    <div class="input-wrapper">
-                        <input type="text" id="clientNameInput" placeholder="client_name" oninput="this.value = this.value.replace(/\s+/g, '_')">
-                        <span class="input-label">CN</span>
-                    </div>
-                    <button onclick="createClient()" class="btn-submit">Выпустить</button>
+                <div>
+                    <h2 class="header-title uppercase-accent">Выпустить клиентский сертификат</h2>
+                    <p class="header-subtitle font-mono">Генерация ключей Easy-RSA, назначение статического IP и привязка адаптера</p>
                 </div>
-                <div id="actionMessage" class="status-msg"></div>
+                <button type="button" class="btn-text" onclick="toggleAdvancedOptions()" id="advOptionsBtn" style="font-size: 12px; color: var(--accent);">
+                    + Дополнительные параметры сети
+                </button>
+            </div>
+            <div class="card-body bg-offset" style="padding: 20px 24px;">
+                <div style="display: flex; flex-direction: column; gap: 16px;">
+                    <div style="display: grid; grid-template-columns: 2fr 1fr auto; gap: 16px; align-items: center;">
+                        <div class="input-wrapper">
+                            <input type="text" id="clientNameInput" placeholder="Имя клиента (например: client_ivanov)" oninput="this.value = this.value.replace(/\s+/g, '_')">
+                            <span class="input-label">CN</span>
+                        </div>
+                        
+                        <!-- Переключатель платформы -->
+                        <div style="display: flex; gap: 8px; background: rgba(0,0,0,0.2); padding: 4px; border-radius: 8px; border: 1px solid var(--border-color);">
+                            <button type="button" id="platformWinBtn" onclick="setPlatform('windows')" class="tab-btn active" style="padding: 6px 12px; font-size: 13px; flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                                🪟 Windows
+                            </button>
+                            <button type="button" id="platformLinuxBtn" onclick="setPlatform('linux')" class="tab-btn" style="padding: 6px 12px; font-size: 13px; flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                                🐧 Linux / Mac
+                            </button>
+                        </div>
+
+                        <button onclick="createClient()" class="btn-submit" id="createClientBtn" style="min-width: 140px;">
+                            Выпустить .ovpn
+                        </button>
+                    </div>
+
+                    <!-- Скрытые расширенные параметры -->
+                    <div id="advancedOptionsSection" class="hidden" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding-top: 12px; border-top: 1px dashed var(--border-color);">
+                        <div class="input-wrapper">
+                            <input type="text" id="customDevNodeInput" placeholder="Оставьте пустым для автогенерации (ITSG-OVPN_...)">
+                            <span class="input-label">dev-node</span>
+                        </div>
+                        <div class="input-wrapper">
+                            <input type="text" id="customIpInput" placeholder="Оставьте пустым для автовыбора следующего IP">
+                            <span class="input-label">Статический IP</span>
+                        </div>
+                    </div>
+                </div>
+                <div id="actionMessage" class="status-msg" style="margin-top: 12px;"></div>
             </div>
         </div>
 
+        <!-- Табы -->
         <div class="tabs-container">
-            <button id="tabCertificatesBtn" onclick="switchTab('certificates')" class="tab-btn active">Сертификаты</button>
+            <button id="tabCertificatesBtn" onclick="switchTab('certificates')" class="tab-btn active">Сертификаты клиентов</button>
             <button id="tabAuditBtn" onclick="switchTab('audit')" class="tab-btn">Журнал действий</button>
         </div>
 
+        <!-- Вкладка сертификатов клиентов -->
         <div id="certificatesTabSection" class="tab-section">
             <div class="panel-card">
                 <div class="card-header table-actions">
-                    <h2 class="header-title uppercase-muted">Сертификаты системы</h2>
+                    <div style="display: flex; align-items: center; gap: 16px;">
+                        <h2 class="header-title uppercase-muted">Реестр клиентов VPN</h2>
+                        <span id="clientCounterBadge" class="service-status-badge status-active" style="padding: 2px 8px; font-size: 11px;">0 клиентов</span>
+                    </div>
+
                     <div class="filter-zone">
                         <label class="checkbox-label">
                             <input type="checkbox" id="hideRevokedCheck" onchange="filterClients()" checked>
                             Скрыть отозванные
                         </label>
                         <div class="search-wrapper">
-                            <input type="text" id="searchInput" oninput="filterClients()" placeholder="Поиск по имени...">
+                            <input type="text" id="searchInput" oninput="filterClients()" placeholder="Поиск по имени, IP, автору...">
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted);">
+                            <span>Строк:</span>
+                            <select id="pageSizeSelect" onchange="changePageSize(this.value)" style="background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 8px; font-size: 13px;">
+                                <option value="10">10</option>
+                                <option value="25" selected>25</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                                <option value="all">Все</option>
+                            </select>
                         </div>
                     </div>
                 </div>
@@ -89,30 +191,46 @@
                         <thead>
                             <tr>
                                 <th>Имя клиента (Common Name)</th>
-                                <th>IP-адрес</th>
+                                <th>Платформа</th>
+                                <th>Выделенный IP</th>
+                                <th>Кем выпущен</th>
+                                <th>Дата создания</th>
                                 <th>Статус</th>
-                                <th>Последняя активность</th>
                                 <th class="text-right">Действия</th>
                             </tr>
                         </thead>
                         <tbody id="clientsTableBody">
+                            <tr><td colspan="7" class="text-center" style="padding:32px; color: var(--text-muted);">Загрузка клиентов...</td></tr>
                         </tbody>
                     </table>
+                </div>
+
+                <!-- Пагинация -->
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 24px; border-top: 1px solid var(--border-color);">
+                    <div style="font-size: 13px; color: var(--text-muted);" id="paginationInfo">
+                        Показано 0 из 0 записей
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center;" id="paginationControls">
+                        <button class="btn-service-restart" style="width: auto; padding: 4px 12px; font-size: 12px;" onclick="prevPage()" id="prevPageBtn">Назад</button>
+                        <span id="currentPageIndicator" style="font-size: 13px; font-weight: 600; padding: 0 8px;">1</span>
+                        <button class="btn-service-restart" style="width: auto; padding: 4px 12px; font-size: 12px;" onclick="nextPage()" id="nextPageBtn">Вперед</button>
+                    </div>
                 </div>
             </div>
         </div>
 
+        <!-- Вкладка аудита -->
         <div id="auditTabSection" class="tab-section hidden">
             <div class="panel-card">
                 <div class="card-header">
-                    <h2 class="header-title uppercase-muted">Журнал действий (Audit Log)</h2>
+                    <h2 class="header-title uppercase-muted">Журнал аудита действий (Audit Log)</h2>
                 </div>
                 <div class="table-wrapper">
                     <table class="data-table font-sm">
                         <thead>
                             <tr>
                                 <th>Время</th>
-                                <th>Пользователь</th>
+                                <th>Оператор</th>
                                 <th>Действие</th>
                                 <th>Детали</th>
                             </tr>
@@ -127,6 +245,58 @@
 
     </main>
 
+    <!-- Интерактивная модальная карточка клиента -->
+    <div id="clientDetailModal" class="modal-overlay hidden">
+        <div class="modal-card" style="max-width: 540px;">
+            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span id="detailPlatformIcon" style="font-size: 20px;">🪟</span>
+                    <h3 class="modal-title" id="detailClientName">client_name</h3>
+                </div>
+                <button onclick="closeDetailModal()" class="btn-icon-toggle" style="border: none;">✕</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 20px 0;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div style="background: rgba(0,0,0,0.2); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color);">
+                        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">IP-адрес клиента</div>
+                        <div style="font-size: 14px; font-weight: 700; font-family: monospace; color: var(--accent);" id="detailIp">—</div>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.2); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color);">
+                        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Интерфейс (dev-node)</div>
+                        <div style="font-size: 14px; font-weight: 700; font-family: monospace;" id="detailDevNode">—</div>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div style="background: rgba(0,0,0,0.2); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color);">
+                        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Кем выпущен</div>
+                        <div style="font-size: 14px; font-weight: 600;" id="detailCreatedBy">—</div>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.2); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color);">
+                        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Дата выпуска</div>
+                        <div style="font-size: 13px; color: var(--text-main);" id="detailCreatedAt">—</div>
+                    </div>
+                </div>
+
+                <div style="background: rgba(0,0,0,0.2); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Текущий статус активности</div>
+                        <div style="font-size: 13px; margin-top: 2px;" id="detailLastSeen">—</div>
+                    </div>
+                    <div id="detailStatusBadge"></div>
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+                <button id="detailRebuildBtn" class="btn-action-rebuild" style="padding: 8px 16px;">Пересобрать .ovpn</button>
+                <div style="display: flex; gap: 8px;">
+                    <button onclick="closeDetailModal()" class="btn-text">Закрыть</button>
+                    <a id="detailDownloadBtn" href="#" class="btn-submit" style="padding: 8px 18px; text-decoration: none;">Скачать .ovpn</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно отзыва -->
     <div id="confirmModal" class="modal-overlay hidden">
         <div class="modal-card">
             <div class="modal-header">

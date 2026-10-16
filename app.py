@@ -18,20 +18,27 @@ from dotenv import load_dotenv
 # Отключение предупреждений об отсутствии SSL-сертификатов
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-
 # Загрузка переменных окружения из .env
 load_dotenv()
 
 # Загрузка конфигурации
 CONFIG_PATH = os.getenv("OPENVPN_WEB_CONFIG", "/opt/openvpn-web/config.json")
 config = {
+    "auth_mode": "central", # "central" или "standalone"
+    "standalone_admin_user": "admin",
+    "standalone_admin_password": "admin123",
     "secret_key": "default-secret-key-32-chars-long-please-change",
     "central_auth_url": "http://127.0.0.1:5001",
     "node_api_token": "default-token",
     "node_name": socket.gethostname(),
     "bind_host": "0.0.0.0",
     "bind_port": 5000,
-    "verify_ssl": True
+    "verify_ssl": True,
+    # Настройки Wintun и dev-node
+    "dev_node_enabled": True,
+    "dev_node_prefix": "ITSG-OVPN",
+    "dev_node_mode": "individual", # "individual" или "shared"
+    "configs_dir": os.getenv("CONFIGS_DIR", "./data/configs")
 }
 
 if os.path.exists(CONFIG_PATH):
@@ -47,7 +54,13 @@ if os.path.exists(CONFIG_PATH):
     except Exception as e:
         print(f"Error loading config: {e}")
 
-# Поддержка переменных окружения (Docker/Systemd)
+# Поддержка переменных окружения (Docker/Systemd/.env)
+if os.getenv("AUTH_MODE"):
+    config["auth_mode"] = os.getenv("AUTH_MODE").lower().strip()
+if os.getenv("STANDALONE_ADMIN_USER"):
+    config["standalone_admin_user"] = os.getenv("STANDALONE_ADMIN_USER").strip()
+if os.getenv("STANDALONE_ADMIN_PASSWORD"):
+    config["standalone_admin_password"] = os.getenv("STANDALONE_ADMIN_PASSWORD")
 if os.getenv("SECRET_KEY"):
     config["secret_key"] = os.getenv("SECRET_KEY")
 if os.getenv("CENTRAL_AUTH_URL"):
@@ -62,8 +75,16 @@ if os.getenv("BIND_PORT"):
     config["bind_port"] = int(os.getenv("BIND_PORT"))
 if os.getenv("VERIFY_SSL"):
     config["verify_ssl"] = os.getenv("VERIFY_SSL").lower() == "true"
+if os.getenv("DEV_NODE_ENABLED"):
+    config["dev_node_enabled"] = os.getenv("DEV_NODE_ENABLED").lower() in ["true", "1", "yes"]
+if os.getenv("DEV_NODE_PREFIX"):
+    config["dev_node_prefix"] = os.getenv("DEV_NODE_PREFIX").strip()
+if os.getenv("DEV_NODE_MODE"):
+    config["dev_node_mode"] = os.getenv("DEV_NODE_MODE").lower().strip()
+if os.getenv("CONFIGS_DIR"):
+    config["configs_dir"] = os.getenv("CONFIGS_DIR")
 
-# Автогенерация secret_key при обнаружении дефолтного значения
+# Автогенерация secret_key при первом старте
 if config.get("secret_key") == "default-secret-key-32-chars-long-please-change" or not config.get("secret_key"):
     import secrets
     config["secret_key"] = secrets.token_hex(16)
@@ -74,10 +95,9 @@ if config.get("secret_key") == "default-secret-key-32-chars-long-please-change" 
     except Exception as e:
         print(f"Error saving auto-generated secret key: {e}")
 
-# Предупреждение на ноде, если используется дефолтный токен
-if config.get("node_api_token") == "default-token":
+if config.get("node_api_token") == "default-token" and config.get("auth_mode") == "central":
     print("*" * 60)
-    print("WARNING: Node is using default 'node_api_token'!")
+    print("WARNING: Node is using default 'node_api_token' with Central Auth!")
     print("Please set a secure shared token in config.json that matches the Auth Server.")
     print("*" * 60)
 
@@ -88,7 +108,7 @@ app.secret_key = config["secret_key"]
 app.config["PREFERRED_URL_SCHEME"] = os.getenv("PREFERRED_URL_SCHEME", "https")
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
 app.config.update(
-    SESSION_COOKIE_NAME=os.getenv("SESSION_COOKIE_NAME", "session"),
+    SESSION_COOKIE_NAME=os.getenv("SESSION_COOKIE_NAME", "vpn_session"),
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=str(os.getenv("SESSION_COOKIE_SECURE", "false")).lower() == "true",
@@ -133,90 +153,140 @@ app.wsgi_app = SubpathMiddleware(app.wsgi_app, prefix='')
 
 EASY_RSA_DIR = os.getenv("EASY_RSA_DIR", "/etc/openvpn/server/easy-rsa")
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/root/openvpn")
+CONFIGS_DIR = config["configs_dir"]
 CLIENT_COMMON = os.getenv("CLIENT_COMMON", "/etc/openvpn/server/client-common.txt")
 INDEX_FILE = os.getenv("INDEX_FILE", f"{EASY_RSA_DIR}/pki/index.txt")
 OPENVPN_SERVICE = os.getenv("OPENVPN_SERVICE", "openvpn-server@server.service")
 
 NODE_DB = os.getenv("DATABASE_PATH", "/opt/openvpn-web/node.db")
 
-CCD_DIR = os.getenv("CCD_DIR")  # Может быть None, если CCD не используется
+CCD_DIR = os.getenv("CCD_DIR", "/etc/openvpn/server/ccd")
 SERVER_CONF = os.getenv("SERVER_CONF", "/etc/openvpn/server/server.conf")
 IPP_FILE = os.getenv("IPP_FILE", "/etc/openvpn/server/ipp.txt")
 
-def parse_openvpn_server_subnet():
-    if os.path.exists(SERVER_CONF):
-        try:
-            with open(SERVER_CONF, "r") as f:
-                for line in f:
-                    line = line.strip()
-                    if line.startswith("server ") and not line.startswith("#"):
-                        parts = line.split()
-                        if len(parts) >= 3:
-                            return parts[1], parts[2]
-        except Exception as e:
-            print(f"Error parsing server.conf subnet: {e}")
-    return "10.8.0.0", "255.255.255.0"
+def get_db_connection():
+    conn = sqlite3.connect(NODE_DB, timeout=10.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout=5000;")
+    conn.row_factory = sqlite3.Row
+    return conn
 
-def get_subnet_hosts():
-    subnet_ip, netmask = parse_openvpn_server_subnet()
+# Инициализация базы данных
+def init_db():
+    db_dir = os.path.dirname(NODE_DB)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+    os.makedirs(CONFIGS_DIR, exist_ok=True)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    if CCD_DIR:
+        os.makedirs(CCD_DIR, exist_ok=True)
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS client_activity (
+            common_name TEXT PRIMARY KEY,
+            last_seen TIMESTAMP
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            username TEXT NOT NULL,
+            action TEXT NOT NULL,
+            details TEXT
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS rate_limits (
+            rate_key TEXT NOT NULL,
+            attempt_time REAL NOT NULL
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_vpn_rate ON rate_limits (rate_key, attempt_time)")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS vpn_clients_meta (
+            client_name TEXT PRIMARY KEY,
+            ip_address TEXT,
+            created_by TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            platform TEXT DEFAULT 'windows',
+            dev_node TEXT,
+            status TEXT DEFAULT 'Active'
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# Логирование действий пользователей (Audit Log)
+def log_action(username, action, details=""):
     try:
-        network = ipaddress.IPv4Network(f"{subnet_ip}/{netmask}", strict=False)
-        hosts = list(network.hosts())
-        if len(hosts) > 1:
-            # Исключаем первый IP (адрес сервера)
-            return [str(ip) for ip in hosts[1:]]
-        return [str(ip) for ip in hosts]
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO audit_logs (username, action, details) VALUES (?, ?, ?)",
+            (username or "unknown", action, details)
+        )
+        cursor.execute("""
+            DELETE FROM audit_logs 
+            WHERE id NOT IN (
+                SELECT id FROM audit_logs 
+                ORDER BY id DESC 
+                LIMIT 1000
+            )
+        """)
+        conn.commit()
+        conn.close()
     except Exception as e:
-        print(f"Error generating IP list from subnet: {e}")
-    return [f"10.8.0.{i}" for i in range(2, 255)]
+        print(f"Error logging action: {e}")
 
-def get_static_ip_map():
-    """Возвращает {имя_клиента_в_нижнем_регистре: ip} за один проход по ipp.txt и CCD.
-    Статический IP из CCD имеет приоритет над динамическим из ipp.txt."""
-    ip_map = {}
+# Ограничитель попыток входа
+LOGIN_MAX_ATTEMPTS = 10
+LOGIN_WINDOW_SECONDS = 300
 
-    # Динамические адреса из ipp.txt
-    if os.path.exists(IPP_FILE):
-        try:
-            with open(IPP_FILE, "r") as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        parts = line.split(",")
-                        if len(parts) >= 2:
-                            ip_map[parts[0].lower()] = parts[1]
-        except Exception as e:
-            print(f"Error reading ipp.txt: {e}")
+def login_rate_limited(key):
+    now = time.time()
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM rate_limits WHERE attempt_time < ?", (now - LOGIN_WINDOW_SECONDS,))
+        cursor.execute("SELECT COUNT(*) FROM rate_limits WHERE rate_key = ? AND attempt_time >= ?", (key, now - LOGIN_WINDOW_SECONDS))
+        count = cursor.fetchone()[0]
+        conn.commit()
+        conn.close()
+        return count >= LOGIN_MAX_ATTEMPTS
+    except Exception as e:
+        print(f"Rate limit check error: {e}")
+        return False
 
-    # Статические IP из CCD перекрывают ipp.txt
-    if CCD_DIR and os.path.exists(CCD_DIR):
-        for name in os.listdir(CCD_DIR):
-            file_path = os.path.join(CCD_DIR, name)
-            if os.path.isfile(file_path):
-                try:
-                    with open(file_path, "r") as f:
-                        content = f.read()
-                    # Ищем директиву ifconfig-push <ip> <netmask>
-                    match = re.search(r'ifconfig-push\s+([\d\.]+)\s+', content)
-                    if match:
-                        ip_map[name.lower()] = match.group(1)
-                except Exception as e:
-                    print(f"Error reading CCD file for {name}: {e}")
+def register_failed_login(key):
+    now = time.time()
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO rate_limits (rate_key, attempt_time) VALUES (?, ?)", (key, now))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Register failed login error: {e}")
 
-    return ip_map
+# Декоратор авторизации с TTL-кешированием валидности сессии (180 секунд)
+AUTH_CACHE_TTL = 180
 
-def find_free_ip():
-    assigned_ips = set(get_static_ip_map().values())
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get("logged_in"):
+            if request.is_json or request.path.startswith('/api/'):
+                return jsonify({"error": "Unauthorized"}), 401
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
 
-    # Поиск первого свободного адреса в пуле хостов подсети
-    for ip in get_subnet_hosts():
-        if ip not in assigned_ips:
-            return ip
-
-    return None
-
-
-# Вспомогательный метод для работы с systemctl на хост-системе (поддерживает докер-контейнеры через nsenter)
+# Вспомогательный метод для работы с systemctl на хост-системе
 def run_systemctl(args, check=False, capture_output=False):
     nsenter_path = None
     for path in ["/usr/bin/nsenter", "/bin/nsenter"]:
@@ -244,68 +314,70 @@ def run_systemctl(args, check=False, capture_output=False):
     else:
         return subprocess.run(["systemctl"] + args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=check)
 
-# Инициализация базы данных
-def init_db():
-    db_dir = os.path.dirname(NODE_DB)
-    if db_dir:
-        os.makedirs(db_dir, exist_ok=True)
-    conn = sqlite3.connect(NODE_DB)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS client_activity (
-            common_name TEXT PRIMARY KEY,
-            last_seen TIMESTAMP
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS audit_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            username TEXT NOT NULL,
-            action TEXT NOT NULL,
-            details TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
+def parse_openvpn_server_subnet():
+    if os.path.exists(SERVER_CONF):
+        try:
+            with open(SERVER_CONF, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("server ") and not line.startswith("#"):
+                        parts = line.split()
+                        if len(parts) >= 3:
+                            return parts[1], parts[2]
+        except Exception as e:
+            print(f"Error parsing server.conf subnet: {e}")
+    return "10.8.0.0", "255.255.255.0"
 
-# Инициализация базы данных при загрузке модуля
-init_db()
-
-# Логирование действий пользователей (Audit Log)
-def log_action(username, action, details=""):
+def get_subnet_hosts():
+    subnet_ip, netmask = parse_openvpn_server_subnet()
     try:
-        conn = sqlite3.connect(NODE_DB)
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO audit_logs (username, action, details) VALUES (?, ?, ?)",
-            (username, action, details)
-        )
-        conn.commit()
-        # Автоматическая очистка: храним только последние 1000 записей
-        cursor.execute("""
-            DELETE FROM audit_logs 
-            WHERE id NOT IN (
-                SELECT id FROM audit_logs 
-                ORDER BY id DESC 
-                LIMIT 1000
-            )
-        """)
-        conn.commit()
-        conn.close()
+        network = ipaddress.IPv4Network(f"{subnet_ip}/{netmask}", strict=False)
+        hosts = list(network.hosts())
+        if len(hosts) > 1:
+            # Исключаем адрес сервера (шлюз)
+            return [str(ip) for ip in hosts[1:]]
+        return [str(ip) for ip in hosts]
     except Exception as e:
-        print(f"Error logging action: {e}")
+        print(f"Error generating IP list from subnet: {e}")
+    return [f"10.8.0.{i}" for i in range(2, 255)]
 
-# Декоратор авторизации
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if not session.get("logged_in"):
-            if request.is_json or request.path.startswith('/api/'):
-                return jsonify({"error": "Unauthorized"}), 401
-            return redirect(url_for('login'))
-        return f(*args, **kwargs)
-    return decorated_function
+def get_static_ip_map():
+    ip_map = {}
+    # Сначала считываем динамические из ipp.txt
+    if os.path.exists(IPP_FILE):
+        try:
+            with open(IPP_FILE, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        parts = line.split(",")
+                        if len(parts) >= 2:
+                            ip_map[parts[0].lower()] = parts[1]
+        except Exception as e:
+            print(f"Error reading ipp.txt: {e}")
+
+    # Статические IP из каталога CCD (высший приоритет)
+    if CCD_DIR and os.path.exists(CCD_DIR):
+        try:
+            for name in os.listdir(CCD_DIR):
+                file_path = os.path.join(CCD_DIR, name)
+                if os.path.isfile(file_path):
+                    with open(file_path, "r") as f:
+                        content = f.read()
+                    match = re.search(r'ifconfig-push\s+([\d\.]+)\s+', content)
+                    if match:
+                        ip_map[name.lower()] = match.group(1)
+        except Exception as e:
+            print(f"Error reading CCD directory: {e}")
+
+    return ip_map
+
+def find_free_ip():
+    assigned_ips = set(get_static_ip_map().values())
+    for ip in get_subnet_hosts():
+        if ip not in assigned_ips:
+            return ip
+    return None
 
 def get_online_clients():
     online_users = set()
@@ -334,6 +406,91 @@ def get_online_clients():
         print(f"Error parsing status log: {e}")
     return online_users
 
+def sanitize_name(name):
+    return re.sub(r'[^a-zA-Z0-9_-]', '_', name)
+
+# Генерация клиентского .ovpn с поддержкой Wintun / dev-node и платформ
+def generate_ovpn(client_name, platform='windows', dev_node=None):
+    try:
+        common = ""
+        if os.path.exists(CLIENT_COMMON):
+            with open(CLIENT_COMMON, "r") as f:
+                common = f.read()
+                
+        ca = ""
+        ca_path = f"{EASY_RSA_DIR}/pki/ca.crt"
+        if os.path.exists(ca_path):
+            with open(ca_path, "r") as f:
+                ca = f.read()
+                
+        cert = ""
+        cert_path = f"{EASY_RSA_DIR}/pki/issued/{client_name}.crt"
+        if os.path.exists(cert_path):
+            with open(cert_path, "r") as f:
+                cert_content = f.read()
+                cert = cert_content[cert_content.find("-----BEGIN CERTIFICATE-----"):]
+                
+        key = ""
+        key_path = f"{EASY_RSA_DIR}/pki/private/{client_name}.key"
+        if os.path.exists(key_path):
+            with open(key_path, "r") as f:
+                key = f.read()
+            
+        tc = ""
+        for tc_cand in ["/etc/openvpn/server/tc.key", f"{EASY_RSA_DIR}/tc.key"]:
+            if os.path.exists(tc_cand):
+                with open(tc_cand, "r") as f:
+                    tc_content = f.read()
+                    idx = tc_content.find("-----BEGIN OpenVPN Static key")
+                    if idx != -1:
+                        tc = tc_content[idx:]
+                    else:
+                        tc = tc_content
+                break
+
+        # Сборка кастомных директив под платформу
+        platform_directives = []
+        if platform == 'windows':
+            platform_directives.append("# Windows Wintun driver and tunnel interface isolation")
+            platform_directives.append("windows-driver wintun")
+            if dev_node:
+                platform_directives.append(f'dev-node "{dev_node}"')
+        elif platform == 'linux':
+            platform_directives.append("# Linux / macOS native client configuration")
+
+        directives_str = "\n".join(platform_directives)
+        if directives_str:
+            directives_str += "\n"
+
+        ovpn_content = (
+            f"{common}\n"
+            f"{directives_str}"
+            f"<ca>\n{ca}\n</ca>\n"
+            f"<cert>\n{cert}\n</cert>\n"
+            f"<key>\n{key}\n</key>\n"
+            f"<tls-crypt>\n{tc}\n</tls-crypt>\n"
+        )
+
+        # Сохраняем в каталог CONFIGS_DIR (./data/configs) и OUTPUT_DIR (/root/openvpn)
+        os.makedirs(CONFIGS_DIR, exist_ok=True)
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        
+        path1 = os.path.join(CONFIGS_DIR, f"{client_name}.ovpn")
+        path2 = os.path.join(OUTPUT_DIR, f"{client_name}.ovpn")
+        
+        with open(path1, "w", encoding="utf-8") as f:
+            f.write(ovpn_content)
+        try:
+            with open(path2, "w", encoding="utf-8") as f:
+                f.write(ovpn_content)
+        except Exception:
+            pass
+
+        return True
+    except Exception as e:
+        print(f"Error generating config for {client_name}: {e}")
+        return False
+
 def get_clients():
     clients = []
     if not os.path.exists(INDEX_FILE):
@@ -341,10 +498,11 @@ def get_clients():
     
     online_set = get_online_clients()
 
-    # Обновляем активность и читаем историю в одном подключении к БД
+    # Обновляем активность и читаем историю
     last_seen_map = {}
+    meta_map = {}
     try:
-        conn = sqlite3.connect(NODE_DB)
+        conn = get_db_connection()
         cursor = conn.cursor()
         if online_set:
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -355,9 +513,14 @@ def get_clients():
                     ON CONFLICT(common_name) DO UPDATE SET last_seen=excluded.last_seen
                 """, (cn, now_str))
             conn.commit()
+            
         cursor.execute("SELECT common_name, last_seen FROM client_activity")
         for row in cursor.fetchall():
-            last_seen_map[row[0].lower()] = row[1]
+            last_seen_map[row['common_name'].lower()] = row['last_seen']
+
+        cursor.execute("SELECT client_name, ip_address, created_by, created_at, platform, dev_node, status FROM vpn_clients_meta")
+        for row in cursor.fetchall():
+            meta_map[row['client_name'].lower()] = dict(row)
         conn.close()
     except Exception as e:
         print(f"Error updating client activity: {e}")
@@ -397,57 +560,34 @@ def get_clients():
             else:
                 last_seen_val = last_seen_map.get(cn_lower, None)
                 
-            ip_address = ip_map.get(name.lower())
+            ip_address = ip_map.get(cn_lower)
+            meta = meta_map.get(cn_lower, {})
+
             clients.append({
                 "name": name,
                 "status": "Active" if status == "V" else "Revoked",
                 "online": is_online,
                 "last_seen": last_seen_val,
-                "ip": ip_address or "Dynamic"
+                "ip": ip_address or meta.get("ip_address") or "Dynamic",
+                "created_by": meta.get("created_by") or "system",
+                "created_at": meta.get("created_at") or parts[1] if len(parts) > 1 else "—",
+                "platform": meta.get("platform") or "windows",
+                "dev_node": meta.get("dev_node") or "—"
             })
     return clients
-
-def sanitize_name(name):
-    return re.sub(r'[^a-zA-Z0-9_-]', '_', name)
-
-def generate_ovpn(client_name):
-    try:
-        with open(CLIENT_COMMON, "r") as f:
-            common = f.read()
-        with open(f"{EASY_RSA_DIR}/pki/ca.crt", "r") as f:
-            ca = f.read()
-        with open(f"{EASY_RSA_DIR}/pki/issued/{client_name}.crt", "r") as f:
-            cert_content = f.read()
-            cert = cert_content[cert_content.find("-----BEGIN CERTIFICATE-----"):]
-        with open(f"{EASY_RSA_DIR}/pki/private/{client_name}.key", "r") as f:
-            key = f.read()
-            
-        with open("/etc/openvpn/server/tc.key", "r") as f:
-            tc_content = f.read()
-            idx = tc_content.find("-----BEGIN OpenVPN Static key")
-            if idx != -1:
-                tc = tc_content[idx:]
-            else:
-                tc = tc_content
-
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-        ovpn_path = os.path.join(OUTPUT_DIR, f"{client_name}.ovpn")
-        with open(ovpn_path, "w") as f:
-            f.write(f"{common}\n")
-            f.write(f"<ca>\n{ca}\n</ca>\n")
-            f.write(f"<cert>\n{cert}\n</cert>\n")
-            f.write(f"<key>\n{key}\n</key>\n")
-            f.write(f"<tls-crypt>\n{tc}\n</tls-crypt>\n")
-        return True
-    except Exception as e:
-        print(f"Error generating config: {e}")
-        return False
 
 # Главный маршрут
 @app.route('/')
 @login_required
 def index():
-    return render_template('index.html', node_name=NODE_NAME)
+    subnet_ip, netmask = parse_openvpn_server_subnet()
+    return render_template(
+        'index.html', 
+        node_name=NODE_NAME,
+        auth_mode=config.get("auth_mode", "central"),
+        subnet=f"{subnet_ip}/{netmask}",
+        dev_node_prefix=config.get("dev_node_prefix", "ITSG-OVPN")
+    )
 
 # Вход в систему
 @app.route('/login', methods=['GET', 'POST'])
@@ -459,7 +599,29 @@ def login():
         
         if not username or not password:
             return jsonify({"error": "Заполните все поля"}), 400
+
+        if login_rate_limited(request.remote_addr):
+            return jsonify({"error": "Слишком много неудачных попыток входа. Попробуйте через 5 минут."}), 429
             
+        auth_mode = config.get("auth_mode", "central")
+
+        # 1. Автономный режим (standalone)
+        if auth_mode == "standalone":
+            admin_user = config.get("standalone_admin_user", "admin")
+            admin_pass = config.get("standalone_admin_password", "admin123")
+            if username == admin_user and password == admin_pass:
+                session["logged_in"] = True
+                session["username"] = username
+                session["role"] = "admin"
+                session["auth_mode"] = "standalone"
+                log_action(username, "LOGIN", "Успешный автономный вход (Standalone)")
+                return jsonify({"success": True})
+            else:
+                register_failed_login(request.remote_addr)
+                log_action(username, "LOGIN_FAILED", "Неверный логин или пароль (Standalone)")
+                return jsonify({"error": "Неверный логин или пароль"}), 401
+
+        # 2. Централизованный режим (centralized-auth)
         central_url = f"{config['central_auth_url'].rstrip('/')}/api/auth/verify"
         try:
             resp = requests.post(
@@ -473,23 +635,27 @@ def login():
                 res_data = resp.json()
                 if res_data.get("success"):
                     session["logged_in"] = True
-                    session["username"] = username
-                    log_action(username, "LOGIN", "Успешный вход в систему")
+                    session["username"] = res_data.get("username", username)
+                    session["role"] = res_data.get("role", "admin")
+                    session["auth_mode"] = "central"
+                    session["last_verified"] = time.time()
+                    log_action(username, "LOGIN", f"Успешный вход через Central Auth ({session['role']})")
                     return jsonify({"success": True})
             
             error_msg = "Неверный логин или пароль"
             if resp.status_code != 200:
                 try:
                     error_msg = resp.json().get("error", error_msg)
-                except:
+                except Exception:
                     pass
-            log_action(username or "unknown", "LOGIN_FAILED", f"Неудачная попытка входа")
-            return jsonify({"error": error_msg}), 401
+            register_failed_login(request.remote_addr)
+            log_action(username or "unknown", "LOGIN_FAILED", f"Неудачная попытка входа: {error_msg}")
+            return jsonify({"error": error_msg}), resp.status_code or 401
         except requests.exceptions.RequestException as e:
             print(f"Central auth connection error: {e}")
             return jsonify({"error": "Центральный сервер авторизации недоступен"}), 503
             
-    return render_template('login.html', node_name=NODE_NAME)
+    return render_template('login.html', node_name=NODE_NAME, auth_mode=config.get("auth_mode", "central"))
 
 # Выход из системы
 @app.route('/logout', methods=['POST'])
@@ -498,6 +664,7 @@ def logout():
     log_action(username, "LOGOUT", "Выход из системы")
     session.pop("logged_in", None)
     session.pop("username", None)
+    session.pop("role", None)
     return jsonify({"success": True})
 
 # API VPN Ноды
@@ -512,6 +679,13 @@ def api_create_client():
     data = request.json or {}
     raw_name = data.get('name', '') or ''
     raw_name = raw_name.strip()
+    platform = data.get('platform', 'windows').lower().strip()
+    if platform not in ['windows', 'linux']:
+        platform = 'windows'
+        
+    custom_dev_node = data.get('dev_node', '').strip()
+    custom_ip = data.get('ip', '').strip()
+
     if not raw_name:
         return jsonify({"error": "Имя не может быть пустым"}), 400
         
@@ -521,27 +695,74 @@ def api_create_client():
         log_action(session.get("username"), "CREATE_CLIENT_FAILED", f"Клиент {client_name} уже существует")
         return jsonify({"error": f"Активный клиент {client_name} уже существует"}), 400
 
+    # Определение dev-node для Windows
+    assigned_dev_node = None
+    if platform == 'windows':
+        if custom_dev_node:
+            assigned_dev_node = sanitize_name(custom_dev_node)
+        elif config.get("dev_node_enabled", True):
+            prefix = config.get("dev_node_prefix", "ITSG-OVPN")
+            mode = config.get("dev_node_mode", "individual")
+            if mode == "individual":
+                assigned_dev_node = f"{prefix}_{client_name}"
+            else:
+                assigned_dev_node = prefix
+
+    # Определение статического IP для CCD
+    subnet_ip, netmask = parse_openvpn_server_subnet()
+    ip_to_assign = None
+    if custom_ip:
+        ip_to_assign = custom_ip
+    else:
+        ip_to_assign = find_free_ip()
+
     try:
         subprocess.run(
             ["./easyrsa", "--batch", "--days=3650", "build-client-full", client_name, "nopass"],
             cwd=EASY_RSA_DIR, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
-        if generate_ovpn(client_name):
-            if CCD_DIR:
-                try:
-                    os.makedirs(CCD_DIR, exist_ok=True)
-                    ccd_file = os.path.join(CCD_DIR, client_name)
-                    ip_to_assign = find_free_ip()
-                    if ip_to_assign:
-                        with open(ccd_file, "w") as f:
-                            f.write(f"ifconfig-push {ip_to_assign} 255.255.255.0\n")
-                    else:
-                        print(f"CCD WARNING: Pool exhausted, could not write static IP for {client_name}")
-                except Exception as e:
-                    print(f"CCD ERROR: Failed to write config for {client_name}: {e}")
-                    
-            log_action(session.get("username"), "CREATE_CLIENT", f"Выпущен клиент: {client_name}")
-            return jsonify({"success": True, "client": client_name})
+
+        # Создание файла CCD со статическим IP
+        if CCD_DIR and ip_to_assign:
+            try:
+                os.makedirs(CCD_DIR, exist_ok=True)
+                ccd_file = os.path.join(CCD_DIR, client_name)
+                with open(ccd_file, "w", encoding="utf-8") as f:
+                    f.write(f"ifconfig-push {ip_to_assign} {netmask}\n")
+            except Exception as e:
+                print(f"CCD ERROR: Failed to write config for {client_name}: {e}")
+
+        # Сборка .ovpn конфигурации
+        if generate_ovpn(client_name, platform=platform, dev_node=assigned_dev_node):
+            # Сохранение метаданных в базу данных
+            try:
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT OR REPLACE INTO vpn_clients_meta 
+                    (client_name, ip_address, created_by, created_at, platform, dev_node, status)
+                    VALUES (?, ?, ?, ?, ?, ?, 'Active')
+                """, (
+                    client_name, 
+                    ip_to_assign or "Dynamic", 
+                    session.get("username", "admin"), 
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    platform,
+                    assigned_dev_node or "—"
+                ))
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                print(f"DB Error saving client meta: {e}")
+
+            log_action(session.get("username"), "CREATE_CLIENT", f"Выпущен клиент: {client_name} ({platform}, IP: {ip_to_assign or 'Dynamic'})")
+            return jsonify({
+                "success": True, 
+                "client": client_name, 
+                "ip": ip_to_assign,
+                "platform": platform,
+                "dev_node": assigned_dev_node
+            })
         else:
             log_action(session.get("username"), "CREATE_CLIENT_FAILED", f"Ошибка сборки .ovpn для {client_name}")
             return jsonify({"error": "Ошибка при сборке .ovpn файла"}), 500
@@ -557,7 +778,22 @@ def api_rebuild_client():
     if not client_name:
         return jsonify({"error": "Имя клиента не указано"}), 400
         
-    if generate_ovpn(client_name):
+    # Считываем сохраненную платформу и dev-node из метаданных
+    platform = "windows"
+    dev_node = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT platform, dev_node FROM vpn_clients_meta WHERE client_name = ?", (client_name,))
+        row = cursor.fetchone()
+        if row:
+            platform = row['platform'] or "windows"
+            dev_node = row['dev_node'] if row['dev_node'] != "—" else None
+        conn.close()
+    except Exception as e:
+        print(f"Error fetching client meta for rebuild: {e}")
+
+    if generate_ovpn(client_name, platform=platform, dev_node=dev_node):
         log_action(session.get("username"), "REBUILD_CLIENT", f"Пересобран конфиг для {client_name}")
         return jsonify({"success": True})
         
@@ -577,8 +813,13 @@ def api_revoke_client():
         subprocess.run(["./easyrsa", "--batch", "revoke", client_name], cwd=EASY_RSA_DIR, check=True)
         subprocess.run(["./easyrsa", "--batch", "--days=3650", "gen-crl"], cwd=EASY_RSA_DIR, check=True)
         
-        shutil.copy(f"{EASY_RSA_DIR}/pki/crl.pem", "/etc/openvpn/server/crl.pem")
-        shutil.chown("/etc/openvpn/server/crl.pem", user="nobody", group="nogroup")
+        crl_target = "/etc/openvpn/server/crl.pem"
+        if os.path.exists(f"{EASY_RSA_DIR}/pki/crl.pem"):
+            shutil.copy(f"{EASY_RSA_DIR}/pki/crl.pem", crl_target)
+            try:
+                shutil.chown(crl_target, user="nobody", group="nogroup")
+            except Exception:
+                pass
         
         run_systemctl(["reload", OPENVPN_SERVICE])
 
@@ -594,6 +835,16 @@ def api_revoke_client():
                     os.remove(ccd_file)
                 except Exception as e:
                     print(f"CCD ERROR: Failed to delete config for revoked client {client_name}: {e}")
+                    
+        # Обновляем статус в БД метаданных
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE vpn_clients_meta SET status = 'Revoked' WHERE client_name = ?", (client_name,))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"DB Error updating revoked status: {e}")
                 
         log_action(session.get("username"), "REVOKE_CLIENT", f"Отозван клиент: {client_name}")
         return jsonify({"success": True})
@@ -606,12 +857,25 @@ def api_revoke_client():
 @login_required
 def download_config(client_name):
     client_name = sanitize_name(client_name)
-    file_path = os.path.join(OUTPUT_DIR, f"{client_name}.ovpn")
-    if os.path.exists(file_path):
+    
+    # 1. Проверяем локальный рабочий каталог CONFIGS_DIR (./data/configs)
+    file_path1 = os.path.join(CONFIGS_DIR, f"{client_name}.ovpn")
+    if os.path.exists(file_path1):
         log_action(session.get("username"), "DOWNLOAD_CONFIG", f"Скачан конфиг клиента: {client_name}")
-        return send_file(file_path, as_attachment=True)
-    else:
-        abort(404)
+        return send_file(file_path1, as_attachment=True, download_name=f"{client_name}.ovpn")
+        
+    # 2. Проверяем OUTPUT_DIR (/root/openvpn)
+    file_path2 = os.path.join(OUTPUT_DIR, f"{client_name}.ovpn")
+    if os.path.exists(file_path2):
+        log_action(session.get("username"), "DOWNLOAD_CONFIG", f"Скачан конфиг клиента: {client_name}")
+        return send_file(file_path2, as_attachment=True, download_name=f"{client_name}.ovpn")
+        
+    # 3. Пересобираем на лету
+    if generate_ovpn(client_name):
+        if os.path.exists(file_path1):
+            return send_file(file_path1, as_attachment=True, download_name=f"{client_name}.ovpn")
+
+    abort(404)
 
 @app.route('/api/service/status', methods=['GET'])
 @login_required
@@ -631,13 +895,28 @@ def service_restart():
         log_action(session.get("username"), "RESTART_SERVICE_FAILED", "Ошибка перезапуска службы OpenVPN")
         return jsonify({"error": "Не удалось перезапустить службу"}), 500
 
+# Эндпоинт получения настроек ноды для UI
+@app.route('/api/settings', methods=['GET'])
+@login_required
+def api_get_settings():
+    subnet_ip, netmask = parse_openvpn_server_subnet()
+    free_ip = find_free_ip()
+    return jsonify({
+        "node_name": NODE_NAME,
+        "auth_mode": config.get("auth_mode", "central"),
+        "subnet": f"{subnet_ip}/{netmask}",
+        "next_free_ip": free_ip,
+        "dev_node_enabled": config.get("dev_node_enabled", True),
+        "dev_node_prefix": config.get("dev_node_prefix", "ITSG-OVPN"),
+        "dev_node_mode": config.get("dev_node_mode", "individual")
+    })
+
 # Эндпоинт получения логов аудита
 @app.route('/api/audit', methods=['GET'])
 @login_required
 def api_get_audit():
     try:
-        conn = sqlite3.connect(NODE_DB)
-        conn.row_factory = sqlite3.Row
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT timestamp, username, action, details FROM audit_logs ORDER BY id DESC LIMIT 50")
         logs = [dict(row) for row in cursor.fetchall()]
@@ -648,5 +927,4 @@ def api_get_audit():
 
 if __name__ == '__main__':
     init_db()
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
     app.run(host=config["bind_host"], port=config["bind_port"], debug=False)
