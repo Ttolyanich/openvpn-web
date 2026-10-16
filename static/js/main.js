@@ -35,6 +35,8 @@ async function loadNodeSettings() {
     }
 }
 
+let selectedDevNodeMode = 'individual';
+
 // Переключение платформы при выпуске конфига
 function setPlatform(platform) {
     selectedPlatform = platform;
@@ -47,6 +49,38 @@ function setPlatform(platform) {
     } else {
         linuxBtn.classList.add('active');
         winBtn.classList.remove('active');
+    }
+    updateDevNodeHint();
+}
+
+// Переключение режима изоляции адаптера Wintun (Тумблер)
+function setDevNodeMode(mode) {
+    selectedDevNodeMode = mode;
+    document.querySelectorAll('#devNodeModeSwitch .segment-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
+    const customWrapper = document.getElementById('customDevNodeWrapper');
+    if (customWrapper) {
+        customWrapper.classList.toggle('hidden', mode !== 'custom');
+    }
+    updateDevNodeHint();
+}
+
+function updateDevNodeHint() {
+    const hintEl = document.getElementById('devNodeHint');
+    if (!hintEl) return;
+    if (selectedPlatform === 'linux') {
+        hintEl.innerText = 'Для Linux / macOS директива dev-node и драйвер Wintun не используются (нативный tun).';
+        return;
+    }
+    if (selectedDevNodeMode === 'individual') {
+        hintEl.innerText = 'Каждому клиенту будет назначен адаптер "ITSG-OVPN_{имя}" для исключения конфликтов одновременных туннелей.';
+    } else if (selectedDevNodeMode === 'common') {
+        hintEl.innerText = 'Всем клиентам будет назначаться единый общий адаптер "ITSG-OVPN".';
+    } else if (selectedDevNodeMode === 'custom') {
+        hintEl.innerText = 'Будет использовано указанное вами точное имя dev-node.';
+    } else {
+        hintEl.innerText = 'Директива dev-node не будет добавлена в .ovpn файл.';
     }
 }
 
@@ -404,6 +438,7 @@ async function createClient() {
             body: JSON.stringify({ 
                 name: name,
                 platform: selectedPlatform,
+                dev_node_mode: selectedDevNodeMode,
                 dev_node: customDevNode,
                 ip: customIp
             })

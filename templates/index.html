@@ -117,11 +117,11 @@
                         </div>
                         
                         <!-- Переключатель платформы -->
-                        <div style="display: flex; gap: 8px; background: rgba(0,0,0,0.2); padding: 4px; border-radius: 8px; border: 1px solid var(--border-color);">
-                            <button type="button" id="platformWinBtn" onclick="setPlatform('windows')" class="tab-btn active" style="padding: 6px 12px; font-size: 13px; flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                        <div class="segmented-control" style="width: 100%; justify-content: center;">
+                            <button type="button" id="platformWinBtn" onclick="setPlatform('windows')" class="segment-btn active" style="flex: 1; justify-content: center;">
                                 🪟 Windows
                             </button>
-                            <button type="button" id="platformLinuxBtn" onclick="setPlatform('linux')" class="tab-btn" style="padding: 6px 12px; font-size: 13px; flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                            <button type="button" id="platformLinuxBtn" onclick="setPlatform('linux')" class="segment-btn" style="flex: 1; justify-content: center;">
                                 🐧 Linux / Mac
                             </button>
                         </div>
@@ -131,15 +131,38 @@
                         </button>
                     </div>
 
-                    <!-- Скрытые расширенные параметры -->
-                    <div id="advancedOptionsSection" class="hidden" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding-top: 12px; border-top: 1px dashed var(--border-color);">
-                        <div class="input-wrapper">
-                            <input type="text" id="customDevNodeInput" placeholder="Оставьте пустым для автогенерации (ITSG-OVPN_...)">
-                            <span class="input-label">dev-node</span>
-                        </div>
-                        <div class="input-wrapper">
-                            <input type="text" id="customIpInput" placeholder="Оставьте пустым для автовыбора следующего IP">
-                            <span class="input-label">Статический IP</span>
+                    <!-- Скрытые расширенные параметры с переключателями -->
+                    <div id="advancedOptionsSection" class="hidden" style="display: flex; flex-direction: column; gap: 16px; padding-top: 16px; border-top: 1px dashed var(--border-color);">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
+                            <!-- Тумблер режима Wintun / dev-node -->
+                            <div>
+                                <label class="form-label">Изоляция Wintun адаптера (директива dev-node)</label>
+                                <div class="segmented-control" id="devNodeModeSwitch" style="width: 100%;">
+                                    <button type="button" class="segment-btn active" data-mode="individual" onclick="setDevNodeMode('individual')" style="flex: 1; justify-content: center;">
+                                        Индивидуальный
+                                    </button>
+                                    <button type="button" class="segment-btn" data-mode="common" onclick="setDevNodeMode('common')" style="flex: 1; justify-content: center;">
+                                        Общий тег
+                                    </button>
+                                    <button type="button" class="segment-btn" data-mode="custom" onclick="setDevNodeMode('custom')" style="flex: 1; justify-content: center;">
+                                        Свой
+                                    </button>
+                                    <button type="button" class="segment-btn" data-mode="none" onclick="setDevNodeMode('none')" style="flex: 1; justify-content: center;">
+                                        Откл
+                                    </button>
+                                </div>
+                                <div id="customDevNodeWrapper" class="hidden" style="margin-top: 8px;">
+                                    <input type="text" id="customDevNodeInput" placeholder="Укажите точное имя dev-node" style="width: 100%; padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-main); font-size: 13px;">
+                                </div>
+                                <span class="field-hint" id="devNodeHint">Каждому клиенту будет назначен адаптер "ITSG-OVPN_{имя}" для исключения конфликтов одновременных туннелей.</span>
+                            </div>
+
+                            <!-- Назначение статического IP -->
+                            <div>
+                                <label class="form-label">Статический IP-адрес клиента (CCD)</label>
+                                <input type="text" id="customIpInput" placeholder="По умолчанию: автовыбор свободного IP" style="width: 100%; padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-main); font-size: 13px; font-family: monospace;">
+                                <span class="field-hint">Резервируется в ccd/{имя}. Пустое поле = автовыбор следующего свободного IP.</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -254,30 +277,30 @@
             </div>
             <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 20px 0;">
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                    <div style="background: rgba(0,0,0,0.2); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color);">
-                        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">IP-адрес клиента</div>
-                        <div style="font-size: 14px; font-weight: 700; font-family: monospace; color: var(--accent);" id="detailIp">—</div>
+                    <div class="modal-info-box">
+                        <div class="modal-info-label">IP-адрес клиента</div>
+                        <div class="modal-info-val" style="color: var(--accent); font-family: monospace;" id="detailIp">—</div>
                     </div>
-                    <div style="background: rgba(0,0,0,0.2); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color);">
-                        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Интерфейс (dev-node)</div>
-                        <div style="font-size: 14px; font-weight: 700; font-family: monospace;" id="detailDevNode">—</div>
+                    <div class="modal-info-box">
+                        <div class="modal-info-label">Интерфейс (dev-node)</div>
+                        <div class="modal-info-val" style="font-family: monospace;" id="detailDevNode">—</div>
                     </div>
                 </div>
 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                    <div style="background: rgba(0,0,0,0.2); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color);">
-                        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Кем выпущен</div>
-                        <div style="font-size: 14px; font-weight: 600;" id="detailCreatedBy">—</div>
+                    <div class="modal-info-box">
+                        <div class="modal-info-label">Кем выпущен</div>
+                        <div class="modal-info-val" id="detailCreatedBy">—</div>
                     </div>
-                    <div style="background: rgba(0,0,0,0.2); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color);">
-                        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Дата выпуска</div>
-                        <div style="font-size: 13px; color: var(--text-main);" id="detailCreatedAt">—</div>
+                    <div class="modal-info-box">
+                        <div class="modal-info-label">Дата выпуска</div>
+                        <div class="modal-info-val" id="detailCreatedAt">—</div>
                     </div>
                 </div>
 
-                <div style="background: rgba(0,0,0,0.2); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+                <div class="modal-info-box" style="display: flex; justify-content: space-between; align-items: center;">
                     <div>
-                        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Текущий статус активности</div>
+                        <div class="modal-info-label">Текущий статус активности</div>
                         <div style="font-size: 13px; margin-top: 2px;" id="detailLastSeen">—</div>
                     </div>
                     <div id="detailStatusBadge"></div>

@@ -695,18 +695,19 @@ def api_create_client():
         log_action(session.get("username"), "CREATE_CLIENT_FAILED", f"Клиент {client_name} уже существует")
         return jsonify({"error": f"Активный клиент {client_name} уже существует"}), 400
 
-    # Определение dev-node для Windows
+    # Определение dev-node для Windows (поддержка тумблеров режимов)
     assigned_dev_node = None
+    dev_node_mode = data.get('dev_node_mode', 'individual')
     if platform == 'windows':
-        if custom_dev_node:
+        if dev_node_mode == 'none':
+            assigned_dev_node = None
+        elif dev_node_mode == 'custom' and custom_dev_node:
             assigned_dev_node = sanitize_name(custom_dev_node)
-        elif config.get("dev_node_enabled", True):
+        elif dev_node_mode == 'common':
+            assigned_dev_node = config.get("dev_node_prefix", "ITSG-OVPN")
+        else: # individual (по умолчанию)
             prefix = config.get("dev_node_prefix", "ITSG-OVPN")
-            mode = config.get("dev_node_mode", "individual")
-            if mode == "individual":
-                assigned_dev_node = f"{prefix}_{client_name}"
-            else:
-                assigned_dev_node = prefix
+            assigned_dev_node = f"{prefix}_{client_name}"
 
     # Определение статического IP для CCD
     subnet_ip, netmask = parse_openvpn_server_subnet()
