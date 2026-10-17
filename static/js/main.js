@@ -675,6 +675,45 @@ function initThemeToggle() {
     });
 }
 
+// Управление цветовой палитрой оформления
+function initPalettePicker() {
+    const savedPalette = localStorage.getItem('theme_palette') || 'classic';
+    document.documentElement.setAttribute('data-palette', savedPalette);
+
+    const toggleBtn = document.getElementById('palette-toggle-btn');
+    const menu = document.getElementById('paletteMenu');
+    if (!toggleBtn || !menu) return;
+
+    function updateActiveOption(palette) {
+        menu.querySelectorAll('.palette-option').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.paletteVal === palette);
+        });
+    }
+    updateActiveOption(savedPalette);
+
+    toggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        menu.classList.toggle('hidden');
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!menu.contains(e.target) && !toggleBtn.contains(e.target)) {
+            menu.classList.add('hidden');
+        }
+    });
+
+    menu.querySelectorAll('.palette-option').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const palette = btn.dataset.paletteVal;
+            document.documentElement.setAttribute('data-palette', palette);
+            localStorage.setItem('theme_palette', palette);
+            updateActiveOption(palette);
+            menu.classList.add('hidden');
+        });
+    });
+}
+
 // Инициализация при загрузке страницы
 window.onload = function() {
     loadClients();
@@ -682,6 +721,7 @@ window.onload = function() {
     loadNodeSettings();
     loadAuditLogs();
     initThemeToggle();
+    initPalettePicker();
     
     // Периодическое обновление данных раз в 10 секунд
     setInterval(function() {
