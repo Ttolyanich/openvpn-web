@@ -187,6 +187,7 @@
                         <div style="max-width: 480px;">
                             <label class="form-label">Статический IP-адрес клиента (CCD)</label>
                             <input type="text" id="customIpInput" placeholder="По умолчанию: автовыбор свободного IP" style="width: 100%; padding: 10px 14px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-main); font-size: 13px; font-family: monospace;">
+                            <div id="customIpValidationMsg" style="display: none; font-size: 12px; margin-top: 6px; font-weight: 500;"></div>
                             <span class="field-hint">Пустое поле = автовыбор свободного IP. Для Windows автоматически применяется общий адаптер "{{ dev_node_name }}".</span>
                         </div>
                     </div>
@@ -328,6 +329,7 @@
                     <div>
                         <label class="form-label" style="font-size: 12px;">Статический IP-адрес (CCD)</label>
                         <input type="text" id="detailIpInput" placeholder="Dynamic" style="width: 100%; padding: 8px 10px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-main); font-size: 13px; font-family: monospace;">
+                        <div id="detailIpValidationMsg" style="display: none; font-size: 12px; margin-top: 6px; font-weight: 500;"></div>
                     </div>
                 </div>
 

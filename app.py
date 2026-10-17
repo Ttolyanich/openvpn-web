@@ -423,6 +423,72 @@ def find_free_ip():
             return ip
     return None
 
+def validate_client_ip(ip_str, exclude_client_name=None):
+    """
+    Валидация статического IP-адреса:
+    - Корректный синтаксис IPv4
+    - Вхождение в диапазон подсети VPN
+    - Исключение адреса сети, широковещательного (broadcast) и шлюза сервера
+    - Проверка на отсутствие конфликта с уже выданными активными IP (CCD и БД)
+    """
+    if not ip_str:
+        return True, None
+        
+    ip_str = ip_str.strip()
+    if ip_str.lower() in ['dynamic', '—', '-', '']:
+        return True, None
+
+    try:
+        ip_obj = ipaddress.IPv4Address(ip_str)
+    except ValueError:
+        return False, f"«{ip_str}» не является корректным IPv4-адресом"
+
+    subnet_ip, netmask = parse_openvpn_server_subnet()
+    try:
+        network = ipaddress.IPv4Network(f"{subnet_ip}/{netmask}", strict=False)
+    except Exception as e:
+        return False, f"Ошибка определения подсети OpenVPN: {e}"
+
+    if ip_obj not in network:
+        return False, f"IP-адрес {ip_str} выходит за пределы подсети VPN ({subnet_ip}/{netmask})"
+
+    if ip_obj == network.network_address:
+        return False, f"IP-адрес {ip_str} является адресом сети (network address)"
+
+    if ip_obj == network.broadcast_address:
+        return False, f"IP-адрес {ip_str} является широковещательным адресом сети (broadcast)"
+
+    # Адрес сервера OpenVPN (шлюз)
+    server_ip = network.network_address + 1
+    if ip_obj == server_ip:
+        return False, f"IP-адрес {ip_str} зарезервирован за сервером (шлюзом OpenVPN)"
+
+    # Проверка конфликта со статическими адресами в CCD
+    static_map = get_static_ip_map()
+    for cn, assigned_ip in static_map.items():
+        if exclude_client_name and cn.lower() == exclude_client_name.lower():
+            continue
+        if assigned_ip == str(ip_obj):
+            return False, f"IP-адрес {ip_str} уже закреплен в CCD за клиентом «{cn}»"
+
+    # Проверка конфликта в базе метаданных клиентов
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT client_name, ip_address FROM vpn_clients_meta WHERE status = 'Active'")
+        for row in cursor.fetchall():
+            c_name = row['client_name']
+            if exclude_client_name and c_name.lower() == exclude_client_name.lower():
+                continue
+            if row['ip_address'] == str(ip_obj):
+                conn.close()
+                return False, f"IP-адрес {ip_str} уже выдан активному клиенту «{c_name}»"
+        conn.close()
+    except Exception as e:
+        print(f"Error checking ip conflict in db: {e}")
+
+    return True, None
+
 def get_online_clients():
     # 1. Сначала пробуем получить живой статус напрямую из сокета управления OpenVPN
     try:
@@ -791,6 +857,10 @@ def api_create_client():
     subnet_ip, netmask = parse_openvpn_server_subnet()
     ip_to_assign = None
     if custom_ip:
+        is_valid, err_msg = validate_client_ip(custom_ip)
+        if not is_valid:
+            log_action(session.get("username"), "CREATE_CLIENT_FAILED", f"Ошибка IP: {err_msg}")
+            return jsonify({"error": err_msg}), 400
         ip_to_assign = custom_ip
     else:
         ip_to_assign = find_free_ip()
@@ -895,6 +965,10 @@ def api_rebuild_client():
     if 'ip' in data:
         new_ip = data.get('ip', '').strip()
         if new_ip and new_ip.lower() != 'dynamic':
+            is_valid, err_msg = validate_client_ip(new_ip, exclude_client_name=client_name)
+            if not is_valid:
+                log_action(session.get("username"), "REBUILD_CLIENT_FAILED", f"Ошибка IP для {client_name}: {err_msg}")
+                return jsonify({"error": err_msg}), 400
             current_ip = new_ip
             if CCD_DIR:
                 try:
@@ -905,6 +979,15 @@ def api_rebuild_client():
                         f.write(f"ifconfig-push {current_ip} {netmask}\n")
                 except Exception as e:
                     print(f"CCD save error: {e}")
+        elif new_ip.lower() == 'dynamic' or new_ip == '':
+            current_ip = "Dynamic"
+            if CCD_DIR:
+                ccd_file = os.path.join(CCD_DIR, client_name)
+                if os.path.exists(ccd_file):
+                    try:
+                        os.remove(ccd_file)
+                    except Exception as e:
+                        print(f"CCD delete error: {e}")
 
     # Обновляем метаданные в БД
     try:

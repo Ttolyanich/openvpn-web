@@ -425,6 +425,13 @@ function openDetailModal(name) {
         msgEl.innerText = '';
     }
 
+    const ipValMsg = document.getElementById('detailIpValidationMsg');
+    if (ipValMsg) {
+        ipValMsg.style.display = 'none';
+        ipValMsg.innerText = '';
+    }
+    if (ipInput) ipInput.style.borderColor = '';
+
     document.getElementById('clientDetailModal').classList.remove('hidden');
 }
 
@@ -443,6 +450,14 @@ async function saveAndRebuildClient() {
     const platform = document.getElementById('detailPlatformSelect').value;
     const devNode = document.getElementById('detailDevNodeInput').value.trim();
     const ip = document.getElementById('detailIpInput').value.trim();
+
+    const ipWarning = checkIpConflict(ip, name);
+    if (ipWarning) {
+        msgEl.style.display = 'block';
+        msgEl.style.color = '#ef4444';
+        msgEl.innerText = ipWarning;
+        return;
+    }
 
     saveBtn.disabled = true;
     msgEl.style.display = 'block';
@@ -528,6 +543,14 @@ async function createClient() {
 
     const customIpInput = document.getElementById('customIpInput');
     const customIp = customIpInput ? customIpInput.value.trim() : '';
+
+    const ipWarning = checkIpConflict(customIp);
+    if (ipWarning) {
+        msg.style.display = "block";
+        msg.style.color = "#ef4444";
+        msg.innerText = ipWarning;
+        return;
+    }
 
     msg.style.color = "var(--text-muted)";
     msg.style.display = "block";
@@ -714,6 +737,78 @@ function initPalettePicker() {
     });
 }
 
+// Валидация вводимого IP-адреса и предотвращение конфликтов (CCD)
+function checkIpConflict(ipStr, excludeName = null) {
+    if (!ipStr) return null;
+    ipStr = ipStr.trim();
+    if (!ipStr || ipStr.toLowerCase() === 'dynamic') return null;
+
+    // Проверка синтаксиса IPv4
+    const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+    if (!ipv4Regex.test(ipStr)) {
+        return "⚠️ Некорректный формат IPv4-адреса (пример: 10.127.8.50)";
+    }
+
+    const parts = ipStr.split('.').map(Number);
+    for (const p of parts) {
+        if (p < 0 || p > 255) return "⚠️ Октеты IPv4 должны быть в диапазоне 0–255";
+    }
+
+    // Проверка на совпадение с активными клиентами
+    const conflict = allClients.find(c => 
+        c.status === 'Active' && 
+        c.ip && 
+        c.ip.toLowerCase() !== 'dynamic' &&
+        c.ip === ipStr &&
+        (!excludeName || c.name.toLowerCase() !== excludeName.toLowerCase())
+    );
+
+    if (conflict) {
+        return `⚠️ IP ${ipStr} уже закреплен за активным клиентом «${conflict.name}»`;
+    }
+
+    return null;
+}
+
+function initIpValidation() {
+    const customIpInp = document.getElementById('customIpInput');
+    const customIpValMsg = document.getElementById('customIpValidationMsg');
+    if (customIpInp && customIpValMsg) {
+        customIpInp.addEventListener('input', () => {
+            const warning = checkIpConflict(customIpInp.value);
+            if (warning) {
+                customIpValMsg.style.display = 'block';
+                customIpValMsg.style.color = '#ef4444';
+                customIpValMsg.innerText = warning;
+                customIpInp.style.borderColor = '#ef4444';
+            } else {
+                customIpValMsg.style.display = 'none';
+                customIpValMsg.innerText = '';
+                customIpInp.style.borderColor = '';
+            }
+        });
+    }
+
+    const detailIpInp = document.getElementById('detailIpInput');
+    const detailIpValMsg = document.getElementById('detailIpValidationMsg');
+    if (detailIpInp && detailIpValMsg) {
+        detailIpInp.addEventListener('input', () => {
+            const currentName = currentDetailClient ? currentDetailClient.name : null;
+            const warning = checkIpConflict(detailIpInp.value, currentName);
+            if (warning) {
+                detailIpValMsg.style.display = 'block';
+                detailIpValMsg.style.color = '#ef4444';
+                detailIpValMsg.innerText = warning;
+                detailIpInp.style.borderColor = '#ef4444';
+            } else {
+                detailIpValMsg.style.display = 'none';
+                detailIpValMsg.innerText = '';
+                detailIpInp.style.borderColor = '';
+            }
+        });
+    }
+}
+
 // Управление шириной рабочей области (Компактный 1440px / На всю ширину 100%)
 function initLayoutToggle() {
     const layoutToggle = document.getElementById('layout-toggle');
@@ -765,6 +860,7 @@ window.onload = function() {
     initThemeToggle();
     initPalettePicker();
     initLayoutToggle();
+    initIpValidation();
     
     // Периодическое обновление данных раз в 10 секунд
     setInterval(function() {
