@@ -119,17 +119,20 @@ else
 fi
 
 # 4. Проверка и инъекция необходимых директив в server.conf (management socket & status)
-if ! grep -q "management /run/openvpn.sock" "${SERVER_DIR}/server.conf" 2>/dev/null; then
-    echo "management /run/openvpn.sock unix" >> "${SERVER_DIR}/server.conf"
-fi
+if [ -f "${SERVER_DIR}/server.conf" ]; then
+    sed -i 's|client-config-dir /etc/openvpn/server/ccd|client-config-dir ccd|g' "${SERVER_DIR}/server.conf"
+    if ! grep -q "management /run/openvpn.sock" "${SERVER_DIR}/server.conf" 2>/dev/null; then
+        echo "management /run/openvpn.sock unix" >> "${SERVER_DIR}/server.conf"
+    fi
 
-if ! grep -q "status /app/data/openvpn-status.log" "${SERVER_DIR}/server.conf" 2>/dev/null; then
-    echo "status /app/data/openvpn-status.log 5" >> "${SERVER_DIR}/server.conf"
-    echo "status-version 2" >> "${SERVER_DIR}/server.conf"
-fi
+    if ! grep -q "status /app/data/openvpn-status.log" "${SERVER_DIR}/server.conf" 2>/dev/null; then
+        echo "status /app/data/openvpn-status.log 5" >> "${SERVER_DIR}/server.conf"
+        echo "status-version 2" >> "${SERVER_DIR}/server.conf"
+    fi
 
-if ! grep -q "client-config-dir" "${SERVER_DIR}/server.conf" 2>/dev/null; then
-    echo "client-config-dir ccd" >> "${SERVER_DIR}/server.conf"
+    if ! grep -q "client-config-dir" "${SERVER_DIR}/server.conf" 2>/dev/null; then
+        echo "client-config-dir ccd" >> "${SERVER_DIR}/server.conf"
+    fi
 fi
 
 echo "=== [OpenVPN Hub] Starting Supervisord Services ==="
