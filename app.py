@@ -37,8 +37,8 @@ config = {
     "verify_ssl": True,
     # Настройки Wintun и dev-node
     "dev_node_enabled": True,
-    "dev_node_name": os.getenv("DEV_NODE_NAME", os.getenv("DEV_NODE_PREFIX", "ITSG-OVPN")),
-    "dev_node_prefix": os.getenv("DEV_NODE_NAME", os.getenv("DEV_NODE_PREFIX", "ITSG-OVPN")),
+    "dev_node_name": os.getenv("DEV_NODE_NAME", os.getenv("DEV_NODE_PREFIX", "VPN-ADAPTER")),
+    "dev_node_prefix": os.getenv("DEV_NODE_NAME", os.getenv("DEV_NODE_PREFIX", "VPN-ADAPTER")),
     "dev_node_mode": "common", # "common" (общий по умолчанию), "none", "custom"
     "configs_dir": os.getenv("CONFIGS_DIR", "./data/configs")
 }
@@ -355,13 +355,13 @@ def get_static_ip_map():
 
 def sync_existing_clients_meta():
     """Синхронизирует метаданные всех существующих клиентов из index.txt:
-       - Устанавливает dev-node (ITSG-OVPN) для всех Windows клиентов, у кого оно не задано
+       - Устанавливает dev-node (VPN-ADAPTER) для всех Windows клиентов, у кого оно не задано
        - Автоматически регистрирует всех существующих клиентов Easy-RSA в базе vpn_clients_meta
     """
     try:
         if not os.path.exists(INDEX_FILE):
             return
-        dev_node_default = config.get("dev_node_name", config.get("dev_node_prefix", "ITSG-OVPN"))
+        dev_node_default = config.get("dev_node_name", config.get("dev_node_prefix", "VPN-ADAPTER"))
         conn = get_db_connection()
         cursor = conn.cursor()
         
@@ -587,7 +587,7 @@ def generate_ovpn(client_name, platform='windows', dev_node=None):
         if platform == 'windows':
             platform_directives.append("# Windows Wintun driver and tunnel interface isolation")
             platform_directives.append("windows-driver wintun")
-            target_dev_node = dev_node if dev_node is not None else config.get("dev_node_name", "ITSG-OVPN")
+            target_dev_node = dev_node if dev_node is not None else config.get("dev_node_name", "VPN-ADAPTER")
             if target_dev_node and target_dev_node != "none":
                 platform_directives.append(f'dev-node "{target_dev_node}"')
         elif platform == 'linux':
@@ -701,7 +701,7 @@ def get_clients():
             dev_node_val = meta.get("dev_node")
             if not dev_node_val or dev_node_val == "—":
                 if client_platform == "windows":
-                    dev_node_val = config.get("dev_node_name", config.get("dev_node_prefix", "ITSG-OVPN"))
+                    dev_node_val = config.get("dev_node_name", config.get("dev_node_prefix", "VPN-ADAPTER"))
                 else:
                     dev_node_val = "—"
 
@@ -723,7 +723,7 @@ def get_clients():
 @login_required
 def index():
     subnet_ip, netmask = parse_openvpn_server_subnet()
-    dev_node_name = config.get("dev_node_name", config.get("dev_node_prefix", "ITSG-OVPN"))
+    dev_node_name = config.get("dev_node_name", config.get("dev_node_prefix", "VPN-ADAPTER"))
     return render_template(
         'index.html', 
         node_name=NODE_NAME,
@@ -848,10 +848,10 @@ def api_create_client():
         elif dev_node_mode == 'custom' and custom_dev_node:
             assigned_dev_node = sanitize_name(custom_dev_node)
         elif dev_node_mode == 'individual':
-            prefix = config.get("dev_node_name", config.get("dev_node_prefix", "ITSG-OVPN"))
+            prefix = config.get("dev_node_name", config.get("dev_node_prefix", "VPN-ADAPTER"))
             assigned_dev_node = f"{prefix}_{client_name}"
         else: # common (общий вариант по умолчанию)
-            assigned_dev_node = config.get("dev_node_name", config.get("dev_node_prefix", "ITSG-OVPN"))
+            assigned_dev_node = config.get("dev_node_name", config.get("dev_node_prefix", "VPN-ADAPTER"))
 
     # Определение статического IP для CCD
     subnet_ip, netmask = parse_openvpn_server_subnet()
@@ -928,7 +928,7 @@ def api_rebuild_client():
     if not client_name:
         return jsonify({"error": "Имя клиента не указано"}), 400
         
-    dev_node_default = config.get("dev_node_name", config.get("dev_node_prefix", "ITSG-OVPN"))
+    dev_node_default = config.get("dev_node_name", config.get("dev_node_prefix", "VPN-ADAPTER"))
     
     # Считываем сохраненную платформу и dev-node из метаданных
     platform = "windows"
@@ -1024,7 +1024,7 @@ def api_rebuild_client():
 def api_rebuild_all_clients():
     clients = get_clients()
     active_clients = [c for c in clients if c['status'] == 'Active']
-    dev_node_default = config.get("dev_node_name", config.get("dev_node_prefix", "ITSG-OVPN"))
+    dev_node_default = config.get("dev_node_name", config.get("dev_node_prefix", "VPN-ADAPTER"))
     
     updated_count = 0
     try:
@@ -1114,7 +1114,7 @@ def api_revoke_client():
 @login_required
 def download_config(client_name):
     client_name = sanitize_name(client_name)
-    dev_node_default = config.get("dev_node_name", config.get("dev_node_prefix", "ITSG-OVPN"))
+    dev_node_default = config.get("dev_node_name", config.get("dev_node_prefix", "VPN-ADAPTER"))
     
     # 1. Считываем сохраненную платформу и dev-node из метаданных
     platform = "windows"
@@ -1194,8 +1194,8 @@ def api_get_settings():
         "subnet": f"{subnet_ip}/{netmask}",
         "next_free_ip": free_ip,
         "dev_node_enabled": config.get("dev_node_enabled", True),
-        "dev_node_name": config.get("dev_node_name", config.get("dev_node_prefix", "ITSG-OVPN")),
-        "dev_node_prefix": config.get("dev_node_name", config.get("dev_node_prefix", "ITSG-OVPN")),
+        "dev_node_name": config.get("dev_node_name", config.get("dev_node_prefix", "VPN-ADAPTER")),
+        "dev_node_prefix": config.get("dev_node_name", config.get("dev_node_prefix", "VPN-ADAPTER")),
         "dev_node_mode": config.get("dev_node_mode", "common")
     })
 

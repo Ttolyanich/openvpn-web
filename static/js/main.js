@@ -69,7 +69,7 @@ function setDevNodeMode(mode) {
 function updateDevNodeHint() {
     const hintEl = document.getElementById('devNodeHint');
     if (!hintEl) return;
-    const devName = window.DEV_NODE_NAME || 'ITSG-OVPN';
+    const devName = window.DEV_NODE_NAME || 'VPN-ADAPTER';
     if (selectedPlatform === 'linux') {
         hintEl.innerText = 'Для Linux / macOS директива dev-node и драйвер Wintun не используются (нативный tun).';
         return;
@@ -386,7 +386,7 @@ function openDetailModal(name) {
     if (!client) return;
     currentDetailClient = client;
 
-    const devDefault = window.DEV_NODE_NAME || 'ITSG-OVPN';
+    const devDefault = window.DEV_NODE_NAME || 'VPN-ADAPTER';
 
     document.getElementById('detailClientName').innerText = client.name;
     document.getElementById('detailPlatformIcon').innerText = client.platform === 'windows' ? '🪟' : '🐧';
@@ -502,7 +502,7 @@ async function saveAndRebuildClient() {
 
 // Массовое обновление всех старых конфигураций до Wintun dev-node
 async function rebuildAllClients() {
-    const devName = window.DEV_NODE_NAME || 'ITSG-OVPN';
+    const devName = window.DEV_NODE_NAME || 'VPN-ADAPTER';
     if (!confirm(`Обновить все клиентские .ovpn файлы на сервере?\nКаждый Windows-клиент получит директивы "windows-driver wintun" и dev-node "${devName}".`)) {
         return;
     }
@@ -573,7 +573,7 @@ async function createClient() {
         
         if (response.ok) {
             msg.style.color = "#10b981";
-            msg.innerText = `Конфигурация ${result.client} (${result.platform}, Wintun: ${result.dev_node || 'ITSG-OVPN'}) успешно выпущена.`;
+            msg.innerText = `Конфигурация ${result.client} (${result.platform}, Wintun: ${result.dev_node || 'VPN-ADAPTER'}) успешно выпущена.`;
             input.value = '';
             if (customIpInput) customIpInput.value = '';
             loadClients();
