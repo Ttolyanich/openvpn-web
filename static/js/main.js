@@ -714,6 +714,48 @@ function initPalettePicker() {
     });
 }
 
+// Управление шириной рабочей области (Компактный 1440px / На всю ширину 100%)
+function initLayoutToggle() {
+    const layoutToggle = document.getElementById('layout-toggle');
+    if (!layoutToggle) return;
+
+    function updateLayoutIcons(isFull) {
+        const expandIcon = layoutToggle.querySelector('.expand-icon');
+        const compressIcon = layoutToggle.querySelector('.compress-icon');
+        if (isFull) {
+            layoutToggle.title = 'Компактный вид (1440px)';
+            if (expandIcon) expandIcon.classList.add('hidden');
+            if (compressIcon) compressIcon.classList.remove('hidden');
+        } else {
+            layoutToggle.title = 'На всю ширину (100%)';
+            if (expandIcon) expandIcon.classList.remove('hidden');
+            if (compressIcon) compressIcon.classList.add('hidden');
+        }
+    }
+
+    const isFullInitial = localStorage.getItem('layout_width') === 'full';
+    if (isFullInitial) {
+        document.body.classList.add('layout-fullwidth');
+        document.documentElement.classList.add('layout-fullwidth');
+    }
+    updateLayoutIcons(isFullInitial);
+
+    layoutToggle.addEventListener('click', () => {
+        const isFull = document.body.classList.contains('layout-fullwidth');
+        if (isFull) {
+            document.body.classList.remove('layout-fullwidth');
+            document.documentElement.classList.remove('layout-fullwidth');
+            localStorage.setItem('layout_width', 'compact');
+            updateLayoutIcons(false);
+        } else {
+            document.body.classList.add('layout-fullwidth');
+            document.documentElement.classList.add('layout-fullwidth');
+            localStorage.setItem('layout_width', 'full');
+            updateLayoutIcons(true);
+        }
+    });
+}
+
 // Инициализация при загрузке страницы
 window.onload = function() {
     loadClients();
@@ -722,6 +764,7 @@ window.onload = function() {
     loadAuditLogs();
     initThemeToggle();
     initPalettePicker();
+    initLayoutToggle();
     
     // Периодическое обновление данных раз в 10 секунд
     setInterval(function() {
