@@ -14,6 +14,7 @@ from functools import wraps
 from flask import Flask, render_template, request, jsonify, send_file, abort, redirect, url_for, session
 from werkzeug.middleware.proxy_fix import ProxyFix
 from dotenv import load_dotenv
+from vpn_manager import vpn_manager
 
 # Отключение предупреждений об отсутствии SSL-сертификатов
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -22,7 +23,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 load_dotenv()
 
 # Загрузка конфигурации
-CONFIG_PATH = os.getenv("OPENVPN_WEB_CONFIG", "/opt/openvpn-web/config.json")
+CONFIG_PATH = os.getenv("OPENVPN_WEB_CONFIG", "/app/data/config.json")
 config = {
     "auth_mode": "central", # "central" или "standalone"
     "standalone_admin_user": "admin",
@@ -156,18 +157,19 @@ class SubpathMiddleware(object):
 
 app.wsgi_app = SubpathMiddleware(app.wsgi_app, prefix='')
 
-EASY_RSA_DIR = os.getenv("EASY_RSA_DIR", "/etc/openvpn/server/easy-rsa")
-OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/root/openvpn")
-CONFIGS_DIR = config["configs_dir"]
-CLIENT_COMMON = os.getenv("CLIENT_COMMON", "/etc/openvpn/server/client-common.txt")
+EASY_RSA_DIR = os.getenv("EASY_RSA_DIR", "/app/data/easy-rsa")
+OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/app/data/clients")
+CONFIGS_DIR = os.getenv("CONFIGS_DIR", config.get("configs_dir", "/app/data/clients"))
+CLIENT_COMMON = os.getenv("CLIENT_COMMON", "/app/data/server/client-common.txt")
 INDEX_FILE = os.getenv("INDEX_FILE", f"{EASY_RSA_DIR}/pki/index.txt")
-OPENVPN_SERVICE = os.getenv("OPENVPN_SERVICE", "openvpn-server@server.service")
+OPENVPN_SERVICE = os.getenv("OPENVPN_SERVICE", "openvpn")
 
-NODE_DB = os.getenv("DATABASE_PATH", "/opt/openvpn-web/node.db")
+NODE_DB = os.getenv("DATABASE_PATH", "/app/data/node.db")
 
-CCD_DIR = os.getenv("CCD_DIR", "/etc/openvpn/server/ccd")
-SERVER_CONF = os.getenv("SERVER_CONF", "/etc/openvpn/server/server.conf")
-IPP_FILE = os.getenv("IPP_FILE", "/etc/openvpn/server/ipp.txt")
+CCD_DIR = os.getenv("CCD_DIR", "/app/data/server/ccd")
+SERVER_CONF = os.getenv("SERVER_CONF", "/app/data/server/server.conf")
+IPP_FILE = os.getenv("IPP_FILE", "/app/data/server/ipp.txt")
+STATUS_LOG = os.getenv("STATUS_LOG", "/app/data/openvpn-status.log")
 
 def get_db_connection():
     conn = sqlite3.connect(NODE_DB, timeout=10.0)
@@ -291,33 +293,7 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# Вспомогательный метод для работы с systemctl на хост-системе
-def run_systemctl(args, check=False, capture_output=False):
-    nsenter_path = None
-    for path in ["/usr/bin/nsenter", "/bin/nsenter"]:
-        if os.path.exists(path):
-            nsenter_path = path
-            break
 
-    if nsenter_path:
-        cmd = [nsenter_path, "-t", "1", "-m", "-u", "-n", "-i", "systemctl"] + args
-        try:
-            env = os.environ.copy()
-            env["SYSTEMD_IGNORE_CHROOT"] = "1"
-            if capture_output:
-                res = subprocess.run(cmd, capture_output=True, text=True, env=env, check=check, timeout=5)
-            else:
-                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, check=check, timeout=5)
-            if "Permission denied" not in (res.stderr or "") and "Could not open" not in (res.stderr or ""):
-                return res
-        except Exception:
-            pass
-
-    # Фолбек на прямой запуск systemctl
-    if capture_output:
-        return subprocess.run(["systemctl"] + args, capture_output=True, text=True, check=check)
-    else:
-        return subprocess.run(["systemctl"] + args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=check)
 
 def parse_openvpn_server_subnet():
     if os.path.exists(SERVER_CONF):
@@ -448,12 +424,26 @@ def find_free_ip():
     return None
 
 def get_online_clients():
+    # 1. Сначала пробуем получить живой статус напрямую из сокета управления OpenVPN
+    try:
+        mgmt_clients = vpn_manager.get_online_clients_from_mgmt()
+        if mgmt_clients is not None:
+            return mgmt_clients
+    except Exception as e:
+        print(f"Management socket query error: {e}")
+
+    # 2. Фолбек на парсинг лог-файла статуса
     online_users = set()
-    paths = ["/run/openvpn-server/status-server.log", "/var/log/openvpn/openvpn-status.log"]
+    paths = [
+        STATUS_LOG,
+        "/app/data/openvpn-status.log",
+        "/run/openvpn-server/status-server.log",
+        "/var/log/openvpn/openvpn-status.log"
+    ]
     status_log_path = None
     
     for p in paths:
-        if os.path.exists(p):
+        if p and os.path.exists(p):
             status_log_path = p
             break
             
@@ -487,6 +477,8 @@ def generate_ovpn(client_name, platform='windows', dev_node=None):
                 
         ca = ""
         ca_path = f"{EASY_RSA_DIR}/pki/ca.crt"
+        if not os.path.exists(ca_path):
+            ca_path = os.path.join(os.path.dirname(SERVER_CONF), "ca.crt")
         if os.path.exists(ca_path):
             with open(ca_path, "r") as f:
                 ca = f.read()
@@ -505,7 +497,15 @@ def generate_ovpn(client_name, platform='windows', dev_node=None):
                 key = f.read()
             
         tc = ""
-        for tc_cand in ["/etc/openvpn/server/tc.key", f"{EASY_RSA_DIR}/tc.key"]:
+        tc_candidates = [
+            os.path.join(os.path.dirname(SERVER_CONF), "tc.key"),
+            os.path.join(os.path.dirname(SERVER_CONF), "ta.key"),
+            f"{EASY_RSA_DIR}/tc.key",
+            "/app/data/server/tc.key",
+            "/app/data/tc.key",
+            "/etc/openvpn/server/tc.key"
+        ]
+        for tc_cand in tc_candidates:
             if os.path.exists(tc_cand):
                 with open(tc_cand, "r") as f:
                     tc_content = f.read()
@@ -984,7 +984,7 @@ def api_revoke_client():
         subprocess.run(["./easyrsa", "--batch", "revoke", client_name], cwd=EASY_RSA_DIR, check=True)
         subprocess.run(["./easyrsa", "--batch", "--days=3650", "gen-crl"], cwd=EASY_RSA_DIR, check=True)
         
-        crl_target = "/etc/openvpn/server/crl.pem"
+        crl_target = os.path.join(os.path.dirname(SERVER_CONF), "crl.pem")
         if os.path.exists(f"{EASY_RSA_DIR}/pki/crl.pem"):
             shutil.copy(f"{EASY_RSA_DIR}/pki/crl.pem", crl_target)
             try:
@@ -992,7 +992,10 @@ def api_revoke_client():
             except Exception:
                 pass
         
-        run_systemctl(["reload", OPENVPN_SERVICE])
+        # Перечитываем CRL на лету без разрыва других туннелей
+        vpn_manager.reload_crl()
+        # Мгновенно выбиваем активную сессию отозванного клиента
+        vpn_manager.kill_client(client_name)
 
         for folder, ext in [("reqs", "req"), ("private", "key")]:
             file_path = f"{EASY_RSA_DIR}/pki/{folder}/{client_name}.{ext}"
@@ -1078,19 +1081,22 @@ def download_config(client_name):
 @app.route('/api/service/status', methods=['GET'])
 @login_required
 def service_status():
-    res = run_systemctl(["is-active", OPENVPN_SERVICE], capture_output=True)
-    status = res.stdout.strip()
-    return jsonify({"status": "active" if status == "active" else "failed"})
+    is_active = vpn_manager.is_active()
+    return jsonify({"status": "active" if is_active else "failed"})
 
 @app.route('/api/service/restart', methods=['POST'])
 @login_required
 def service_restart():
     try:
-        run_systemctl(["restart", OPENVPN_SERVICE], check=True)
-        log_action(session.get("username"), "RESTART_SERVICE", "Перезапуск службы OpenVPN")
-        return jsonify({"success": True})
-    except subprocess.CalledProcessError:
-        log_action(session.get("username"), "RESTART_SERVICE_FAILED", "Ошибка перезапуска службы OpenVPN")
+        success = vpn_manager.restart_service()
+        if success:
+            log_action(session.get("username"), "RESTART_SERVICE", "Перезапуск службы OpenVPN (Supervisor)")
+            return jsonify({"success": True})
+        else:
+            log_action(session.get("username"), "RESTART_SERVICE_FAILED", "Ошибка перезапуска службы OpenVPN")
+            return jsonify({"error": "Не удалось перезапустить службу"}), 500
+    except Exception as e:
+        log_action(session.get("username"), "RESTART_SERVICE_FAILED", f"Ошибка: {e}")
         return jsonify({"error": "Не удалось перезапустить службу"}), 500
 
 # Эндпоинт получения настроек ноды для UI
