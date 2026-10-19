@@ -645,11 +645,29 @@ async function handleLogout() {
     }
 }
 
+// Управление мобильным сайдбаром (Off-canvas Drawer)
+function toggleMobileSidebar(open) {
+    const sidebar = document.getElementById('sidebarNav') || document.querySelector('.sidebar');
+    const backdrop = document.getElementById('mobileBackdrop');
+    if (!sidebar) return;
+    if (open) {
+        sidebar.classList.add('open');
+        if (backdrop) backdrop.classList.add('open');
+        document.body.style.overflow = 'hidden';
+    } else {
+        sidebar.classList.remove('open');
+        if (backdrop) backdrop.classList.remove('open');
+        document.body.style.overflow = '';
+    }
+}
+window.toggleMobileSidebar = toggleMobileSidebar;
+
 // Переключение вкладок навигации (Sidebar "шторка")
 let currentTab = 'clients';
 
 function switchNavTab(tabName) {
     currentTab = tabName;
+    toggleMobileSidebar(false); // Автозакрытие шторки на мобильных при смене вкладки
 
     // Кнопки боковой панели
     const navClientsBtn = document.getElementById('navClientsBtn');

@@ -21,16 +21,46 @@
 </head>
 <body>
 
+    <!-- Мобильная шторка (бэкдроп) -->
+    <div id="mobileBackdrop" class="mobile-backdrop" onclick="toggleMobileSidebar(false)"></div>
+
+    <!-- Мобильная верхняя панель (активна только при ширине экрана <= 900px) -->
+    <header class="mobile-topbar">
+        <button type="button" class="btn-hamburger" onclick="toggleMobileSidebar(true)" title="Открыть меню">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+        </button>
+        <div class="mobile-brand">
+            <div class="logo-box small">V</div>
+            <span class="brand-title" style="font-size: 15px;">OPENVPN <span class="accent-text">HUB</span></span>
+        </div>
+        <div class="mobile-topbar-actions">
+            <div class="palette-picker-dropdown">
+                <button type="button" onclick="document.getElementById('paletteMenu').classList.toggle('hidden')" class="btn-icon-toggle" title="Палитра">
+                    🎨
+                </button>
+            </div>
+            <span id="mobileServiceStatusDot" class="status-indicator-dot online" title="Служба OpenVPN"></span>
+        </div>
+    </header>
+
     <div class="app-layout">
         <!-- Левое боковое меню навигации (Sidebar "шторка") -->
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebarNav">
             <!-- Брендинг и логотип -->
             <div class="sidebar-brand">
-                <div class="logo-box">V</div>
-                <div class="sidebar-brand-text">
-                    <span class="brand-title">OPENVPN <span class="accent-text">HUB</span></span>
-                    <span class="brand-subtitle">{{ node_name }}</span>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div class="logo-box">V</div>
+                    <div class="sidebar-brand-text">
+                        <span class="brand-title">OPENVPN <span class="accent-text">HUB</span></span>
+                        <span class="brand-subtitle">{{ node_name }}</span>
+                    </div>
                 </div>
+                <!-- Кнопка закрытия сайдбара для мобильных -->
+                <button type="button" class="sidebar-close-btn" onclick="toggleMobileSidebar(false)" title="Закрыть меню">✕</button>
             </div>
 
             <!-- Профиль текущего пользователя -->
