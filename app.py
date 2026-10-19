@@ -809,6 +809,7 @@ def get_server_config():
         "push_dns": [],
         "redirect_gateway": False,
         "client_to_client": False,
+        "route_nopull": False,
         "dev_node_enabled": config.get("dev_node_enabled", True),
         "dev_node_name": config.get("dev_node_name", "VPN-ADAPTER")
     }
@@ -854,7 +855,9 @@ def get_server_config():
                             cfg["subnet"] = parts[1]
                             cfg["netmask"] = parts[2]
                     elif "push" in line:
-                        if "route " in line:
+                        if "route-nopull" in line:
+                            cfg["route_nopull"] = True
+                        elif "route " in line:
                             m = re.search(r'route\s+([\d\.]+)\s+([\d\.]+)', line)
                             if m:
                                 net = m.group(1)
@@ -946,6 +949,7 @@ def save_server_config(new_cfg):
 
     redirect_gw = bool(new_cfg.get("redirect_gateway", False))
     c2c = bool(new_cfg.get("client_to_client", False))
+    route_nopull = bool(new_cfg.get("route_nopull", False))
     dev_node_en = bool(new_cfg.get("dev_node_enabled", True))
     dev_node_val = str(new_cfg.get("dev_node_name", "VPN-ADAPTER")).strip() or "VPN-ADAPTER"
 
@@ -988,6 +992,9 @@ def save_server_config(new_cfg):
 
     if c2c:
         server_lines.append("client-to-client")
+
+    if route_nopull:
+        server_lines.append('push "route-nopull"')
 
     if redirect_gw:
         server_lines.append('push "redirect-gateway def1"')

@@ -725,6 +725,7 @@ async function loadServerConfigForm() {
         const netmaskEl = document.getElementById('cfgServerNetmask');
         const redirEl = document.getElementById('cfgRedirectGateway');
         const c2cEl = document.getElementById('cfgClientToClient');
+        const nopullEl = document.getElementById('cfgRouteNopull');
         const devEnabledEl = document.getElementById('cfgDevNodeEnabled');
         const devNameEl = document.getElementById('cfgDevNodeName');
         const dns1El = document.getElementById('cfgDns1');
@@ -737,6 +738,7 @@ async function loadServerConfigForm() {
         if (netmaskEl) netmaskEl.value = cfg.netmask || '255.255.255.0';
         if (redirEl) redirEl.checked = !!cfg.redirect_gateway;
         if (c2cEl) c2cEl.checked = !!cfg.client_to_client;
+        if (nopullEl) nopullEl.checked = !!cfg.route_nopull;
 
         const isDevEnabled = cfg.dev_node_enabled !== false;
         if (devEnabledEl) devEnabledEl.checked = isDevEnabled;
@@ -833,6 +835,7 @@ function getProposedServerConfig() {
     const netmask = (document.getElementById('cfgServerNetmask')?.value || '255.255.255.0').trim();
     const redirectGateway = !!document.getElementById('cfgRedirectGateway')?.checked;
     const clientToClient = !!document.getElementById('cfgClientToClient')?.checked;
+    const routeNopull = !!document.getElementById('cfgRouteNopull')?.checked;
     const devNodeEnabled = !!document.getElementById('cfgDevNodeEnabled')?.checked;
     const devNodeName = (document.getElementById('cfgDevNodeName')?.value || 'VPN-ADAPTER').trim();
 
@@ -852,6 +855,7 @@ function getProposedServerConfig() {
         push_dns: dns,
         redirect_gateway: redirectGateway,
         client_to_client: clientToClient,
+        route_nopull: routeNopull,
         dev_node_enabled: devNodeEnabled,
         dev_node_name: devNodeName
     };
@@ -892,6 +896,9 @@ function openRestartConfirmModal() {
         }
         if (!!currentServerConfig.client_to_client !== proposed.client_to_client) {
             diffs.push(`Client-to-client: ${proposed.client_to_client ? 'Разрешено' : 'Запрещено'}`);
+        }
+        if (!!currentServerConfig.route_nopull !== proposed.route_nopull) {
+            diffs.push(`Route-nopull: ${proposed.route_nopull ? 'Включено (только явные маршруты)' : 'Отключено'}`);
         }
         if (JSON.stringify(currentServerConfig.push_routes || []) !== JSON.stringify(proposed.push_routes)) {
             diffs.push(`Маршруты: [${(proposed.push_routes || []).join(', ') || 'нет'}]`);
