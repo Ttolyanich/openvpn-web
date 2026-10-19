@@ -645,30 +645,433 @@ async function handleLogout() {
     }
 }
 
-// Переключение вкладок
-let currentTab = 'certificates';
+// Переключение вкладок навигации (Sidebar "шторка")
+let currentTab = 'clients';
 
-function switchTab(tabName) {
+function switchNavTab(tabName) {
     currentTab = tabName;
-    const certTabBtn = document.getElementById('tabCertificatesBtn');
-    const auditTabBtn = document.getElementById('tabAuditBtn');
-    const certSection = document.getElementById('certificatesTabSection');
-    const auditSection = document.getElementById('auditTabSection');
-    
-    if (tabName === 'certificates') {
-        certTabBtn.classList.add('active');
-        auditTabBtn.classList.remove('active');
-        certSection.classList.remove('hidden');
-        auditSection.classList.add('hidden');
+
+    // Кнопки боковой панели
+    const navClientsBtn = document.getElementById('navClientsBtn');
+    const navAuditBtn = document.getElementById('navAuditBtn');
+    const navServerConfigBtn = document.getElementById('navServerConfigBtn');
+    const navUsersBtn = document.getElementById('navUsersBtn');
+
+    if (navClientsBtn) navClientsBtn.classList.toggle('active', tabName === 'clients');
+    if (navAuditBtn) navAuditBtn.classList.toggle('active', tabName === 'audit');
+    if (navServerConfigBtn) navServerConfigBtn.classList.toggle('active', tabName === 'server-config');
+    if (navUsersBtn) navUsersBtn.classList.toggle('active', tabName === 'users');
+
+    // Секции контента
+    const clientsSec = document.getElementById('tabSectionClients');
+    const auditSec = document.getElementById('tabSectionAudit');
+    const serverConfigSec = document.getElementById('tabSectionServerConfig');
+    const usersSec = document.getElementById('tabSectionUsers');
+
+    if (clientsSec) clientsSec.classList.toggle('hidden', tabName !== 'clients');
+    if (auditSec) auditSec.classList.toggle('hidden', tabName !== 'audit');
+    if (serverConfigSec) serverConfigSec.classList.toggle('hidden', tabName !== 'server-config');
+    if (usersSec) usersSec.classList.toggle('hidden', tabName !== 'users');
+
+    // Загрузка соответствующих данных
+    if (tabName === 'clients') {
         loadClients();
-    } else {
-        certTabBtn.classList.remove('active');
-        auditTabBtn.classList.add('active');
-        certSection.classList.add('hidden');
-        auditSection.classList.remove('hidden');
+    } else if (tabName === 'audit') {
         loadAuditLogs();
+    } else if (tabName === 'server-config') {
+        loadServerConfigForm();
+    } else if (tabName === 'users') {
+        loadUsersTable();
     }
 }
+
+// Для обратной совместимости
+function switchTab(tabName) {
+    switchNavTab(tabName === 'certificates' ? 'clients' : tabName);
+}
+
+// ========================================================
+// УПРАВЛЕНИЕ КОНФИГУРАЦИЕЙ СЕРВЕРА (Admin Only)
+// ========================================================
+let currentServerConfig = null;
+let pushRoutesList = [];
+
+// Загрузка текущих параметров сервера в форму
+async function loadServerConfigForm() {
+    const statusMsg = document.getElementById('serverConfigStatusMsg');
+    if (statusMsg) {
+        statusMsg.style.display = 'none';
+        statusMsg.innerText = '';
+    }
+
+    try {
+        const response = await fetch(`${BASE_PATH}/api/server/config?_=${new Date().getTime()}`);
+        if (!checkAuthResponse(response)) return;
+        const res = await response.json();
+
+        if (!res.success || !res.config) {
+            console.error("Ошибка загрузки конфигурации сервера:", res.error);
+            return;
+        }
+
+        const cfg = res.config;
+        currentServerConfig = { ...cfg };
+
+        // Заполняем поля ввода
+        const hostEl = document.getElementById('cfgServerHost');
+        const portEl = document.getElementById('cfgServerPort');
+        const protoEl = document.getElementById('cfgServerProto');
+        const subnetEl = document.getElementById('cfgServerSubnet');
+        const netmaskEl = document.getElementById('cfgServerNetmask');
+        const redirEl = document.getElementById('cfgRedirectGateway');
+        const c2cEl = document.getElementById('cfgClientToClient');
+        const devEnabledEl = document.getElementById('cfgDevNodeEnabled');
+        const devNameEl = document.getElementById('cfgDevNodeName');
+        const dns1El = document.getElementById('cfgDns1');
+        const dns2El = document.getElementById('cfgDns2');
+
+        if (hostEl) hostEl.value = cfg.server_host || '';
+        if (portEl) portEl.value = cfg.port || 1194;
+        if (protoEl) protoEl.value = (cfg.proto || 'udp').toLowerCase();
+        if (subnetEl) subnetEl.value = cfg.subnet || '10.8.0.0';
+        if (netmaskEl) netmaskEl.value = cfg.netmask || '255.255.255.0';
+        if (redirEl) redirEl.checked = !!cfg.redirect_gateway;
+        if (c2cEl) c2cEl.checked = !!cfg.client_to_client;
+
+        const isDevEnabled = cfg.dev_node_enabled !== false;
+        if (devEnabledEl) devEnabledEl.checked = isDevEnabled;
+        if (devNameEl) devNameEl.value = cfg.dev_node_name || 'VPN-ADAPTER';
+        toggleDevNodeInput(isDevEnabled);
+
+        pushRoutesList = Array.isArray(cfg.push_routes) ? [...cfg.push_routes] : [];
+        renderPushRoutes();
+
+        const dnsList = Array.isArray(cfg.push_dns) ? cfg.push_dns : [];
+        if (dns1El) dns1El.value = dnsList[0] || '';
+        if (dns2El) dns2El.value = dnsList[1] || '';
+
+    } catch (e) {
+        console.error("Ошибка запроса /api/server/config:", e);
+    }
+}
+
+// Переключение доступности ввода имени адаптера dev-node
+function toggleDevNodeInput(enabled) {
+    const inputWrapper = document.getElementById('devNodeInputWrapper');
+    const inputEl = document.getElementById('cfgDevNodeName');
+    const explanation = document.getElementById('devNodeExplanation');
+
+    if (!inputWrapper || !inputEl) return;
+
+    inputEl.disabled = !enabled;
+    if (enabled) {
+        inputWrapper.classList.remove('input-disabled');
+        if (explanation) {
+            explanation.innerHTML = 'При включенном тумблере клиенты Windows связываются с указанным адаптером (Wintun).';
+        }
+    } else {
+        inputWrapper.classList.add('input-disabled');
+        if (explanation) {
+            explanation.innerHTML = '<span style="color:var(--warning); font-weight:600;">⚠️ Директива dev-node исключена</span>: конфигурации клиентов будут использовать системный выбор адаптера.';
+        }
+    }
+}
+
+// Отрисовка списка маршрутов
+function renderPushRoutes() {
+    const container = document.getElementById('pushRoutesList');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (pushRoutesList.length === 0) {
+        container.innerHTML = `<span style="font-size:12px; color:var(--text-muted); font-style:italic;">Маршруты в корпоративные подсети не добавлены</span>`;
+        return;
+    }
+
+    pushRoutesList.forEach((route, idx) => {
+        const item = document.createElement('div');
+        item.className = 'tag-item';
+        item.innerHTML = `
+            <span>${route}</span>
+            <button type="button" class="tag-remove-btn" onclick="removePushRoute(${idx})" title="Удалить маршрут">✕</button>
+        `;
+        container.appendChild(item);
+    });
+}
+
+// Добавление нового маршрута в список
+function addPushRoute() {
+    const input = document.getElementById('newRouteInput');
+    if (!input) return;
+    const val = input.value.trim();
+    if (!val) return;
+
+    if (pushRoutesList.includes(val)) {
+        alert("Такой маршрут уже добавлен в список!");
+        return;
+    }
+
+    pushRoutesList.push(val);
+    renderPushRoutes();
+    input.value = '';
+}
+
+// Удаление маршрута из списка
+function removePushRoute(idx) {
+    if (idx >= 0 && idx < pushRoutesList.length) {
+        pushRoutesList.splice(idx, 1);
+        renderPushRoutes();
+    }
+}
+
+// Сборка объекта данных из формы сервера
+function getProposedServerConfig() {
+    const host = (document.getElementById('cfgServerHost')?.value || '').trim();
+    const port = parseInt(document.getElementById('cfgServerPort')?.value || '1194', 10);
+    const proto = (document.getElementById('cfgServerProto')?.value || 'udp').toLowerCase().trim();
+    const subnet = (document.getElementById('cfgServerSubnet')?.value || '10.8.0.0').trim();
+    const netmask = (document.getElementById('cfgServerNetmask')?.value || '255.255.255.0').trim();
+    const redirectGateway = !!document.getElementById('cfgRedirectGateway')?.checked;
+    const clientToClient = !!document.getElementById('cfgClientToClient')?.checked;
+    const devNodeEnabled = !!document.getElementById('cfgDevNodeEnabled')?.checked;
+    const devNodeName = (document.getElementById('cfgDevNodeName')?.value || 'VPN-ADAPTER').trim();
+
+    const dns = [];
+    const dns1 = (document.getElementById('cfgDns1')?.value || '').trim();
+    const dns2 = (document.getElementById('cfgDns2')?.value || '').trim();
+    if (dns1) dns.push(dns1);
+    if (dns2) dns.push(dns2);
+
+    return {
+        server_host: host,
+        port: port,
+        proto: proto,
+        subnet: subnet,
+        netmask: netmask,
+        push_routes: [...pushRoutesList],
+        push_dns: dns,
+        redirect_gateway: redirectGateway,
+        client_to_client: clientToClient,
+        dev_node_enabled: devNodeEnabled,
+        dev_node_name: devNodeName
+    };
+}
+
+// Открытие модального окна подтверждения перезапуска с отображением diff изменений
+function openRestartConfirmModal() {
+    const proposed = getProposedServerConfig();
+
+    if (!proposed.server_host) {
+        alert("Пожалуйста, укажите внешний IP-адрес или домен сервера!");
+        document.getElementById('cfgServerHost')?.focus();
+        return;
+    }
+    if (isNaN(proposed.port) || proposed.port < 1 || proposed.port > 65535) {
+        alert("Порт должен быть числом в диапазоне 1-65535!");
+        document.getElementById('cfgServerPort')?.focus();
+        return;
+    }
+
+    // Собираем различия (diff)
+    const diffs = [];
+    if (currentServerConfig) {
+        if (currentServerConfig.server_host !== proposed.server_host) {
+            diffs.push(`Внешний адрес: ${currentServerConfig.server_host || '—'} ➔ ${proposed.server_host}`);
+        }
+        if (Number(currentServerConfig.port) !== proposed.port) {
+            diffs.push(`Порт: ${currentServerConfig.port} ➔ ${proposed.port}`);
+        }
+        if ((currentServerConfig.proto || 'udp').toLowerCase() !== proposed.proto) {
+            diffs.push(`Протокол: ${currentServerConfig.proto} ➔ ${proposed.proto.toUpperCase()}`);
+        }
+        if (currentServerConfig.subnet !== proposed.subnet || currentServerConfig.netmask !== proposed.netmask) {
+            diffs.push(`Подсеть VPN: ${currentServerConfig.subnet}/${currentServerConfig.netmask} ➔ ${proposed.subnet}/${proposed.netmask}`);
+        }
+        if (!!currentServerConfig.redirect_gateway !== proposed.redirect_gateway) {
+            diffs.push(`Redirect-Gateway: ${proposed.redirect_gateway ? 'Включено (весь трафик)' : 'Отключено'}`);
+        }
+        if (!!currentServerConfig.client_to_client !== proposed.client_to_client) {
+            diffs.push(`Client-to-client: ${proposed.client_to_client ? 'Разрешено' : 'Запрещено'}`);
+        }
+        if (JSON.stringify(currentServerConfig.push_routes || []) !== JSON.stringify(proposed.push_routes)) {
+            diffs.push(`Маршруты: [${(proposed.push_routes || []).join(', ') || 'нет'}]`);
+        }
+        if (JSON.stringify(currentServerConfig.push_dns || []) !== JSON.stringify(proposed.push_dns)) {
+            diffs.push(`DNS: [${(proposed.push_dns || []).join(', ') || 'нет'}]`);
+        }
+        if (currentServerConfig.dev_node_enabled !== proposed.dev_node_enabled) {
+            diffs.push(`Wintun dev-node: ${proposed.dev_node_enabled ? 'Включено' : 'Отключено'}`);
+        }
+        if (proposed.dev_node_enabled && currentServerConfig.dev_node_name !== proposed.dev_node_name) {
+            diffs.push(`Имя адаптера dev-node: ${currentServerConfig.dev_node_name} ➔ ${proposed.dev_node_name}`);
+        }
+    }
+
+    const summaryEl = document.getElementById('restartChangesSummary');
+    if (summaryEl) {
+        if (diffs.length === 0) {
+            summaryEl.innerHTML = `<div>• Параметры конфигурации не изменены (будет выполнен профилактический перезапуск службы).</div>`;
+        } else {
+            summaryEl.innerHTML = diffs.map(d => `<div>• ${d}</div>`).join('');
+        }
+    }
+
+    // Количество подключенных клиентов онлайн
+    const onlineCount = allClients.filter(c => c.online).length;
+    const onlineCounterEl = document.getElementById('restartOnlineCount');
+    if (onlineCounterEl) onlineCounterEl.innerText = onlineCount;
+
+    document.getElementById('serverRestartConfirmModal').classList.remove('hidden');
+}
+
+function closeRestartModal() {
+    const modal = document.getElementById('serverRestartConfirmModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+// Применение конфигурации на сервере
+async function executeSaveServerConfig() {
+    const proposed = getProposedServerConfig();
+    closeRestartModal();
+
+    const statusMsg = document.getElementById('serverConfigStatusMsg');
+    const indicator = document.getElementById('serviceIndicator');
+    const restartBtn = document.getElementById('serviceRestartBtn');
+
+    if (statusMsg) {
+        statusMsg.style.display = 'block';
+        statusMsg.className = 'status-msg';
+        statusMsg.style.color = 'var(--warning)';
+        statusMsg.innerText = 'Сохранение параметров и перезапуск службы OpenVPN...';
+    }
+    if (indicator) {
+        indicator.className = 'service-status-badge status-loading';
+        indicator.innerText = 'VPN: RESTARTING...';
+    }
+    if (restartBtn) restartBtn.classList.add('spinning');
+
+    try {
+        const response = await fetch(`${BASE_PATH}/api/server/config`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(proposed)
+        });
+
+        if (!checkAuthResponse(response)) return;
+        const res = await response.json();
+
+        if (response.ok && res.success) {
+            if (statusMsg) {
+                statusMsg.style.color = 'var(--success)';
+                statusMsg.innerText = 'Конфигурация успешно применена! Служба перезапущена.';
+            }
+            setTimeout(async () => {
+                await checkServiceStatus();
+                if (restartBtn) restartBtn.classList.remove('spinning');
+                loadServerConfigForm();
+                loadNodeSettings();
+                loadClients();
+                loadAuditLogs();
+            }, 2500);
+        } else {
+            if (statusMsg) {
+                statusMsg.style.color = 'var(--danger)';
+                statusMsg.innerText = `Ошибка применения: ${res.error || 'Неизвестный сбой'}`;
+            }
+            if (restartBtn) restartBtn.classList.remove('spinning');
+            checkServiceStatus();
+        }
+    } catch (e) {
+        if (statusMsg) {
+            statusMsg.style.color = 'var(--danger)';
+            statusMsg.innerText = 'Ошибка соединения при сохранении конфигурации.';
+        }
+        if (restartBtn) restartBtn.classList.remove('spinning');
+        checkServiceStatus();
+    }
+}
+
+// ========================================================
+// УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ И РОЛЯМИ (Admin Only)
+// ========================================================
+async function loadUsersTable() {
+    const tbody = document.getElementById('usersTableBody');
+    if (!tbody) return;
+
+    try {
+        const response = await fetch(`${BASE_PATH}/api/users?_=${new Date().getTime()}`);
+        if (!checkAuthResponse(response)) return;
+        const users = await response.json();
+
+        tbody.innerHTML = '';
+        if (!Array.isArray(users) || users.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" class="text-center" style="padding:24px; color:var(--text-muted);">Пользователи не найдены</td></tr>`;
+            return;
+        }
+
+        users.forEach(u => {
+            const row = document.createElement('tr');
+            
+            const sourceBadge = (u.auth_source === 'central' || u.auth_source === 'ldap')
+                ? `<span class="badge-source" title="Единая точка входа (SSO / Active Directory)">SSO / AD</span>`
+                : `<span class="status-badge" style="background:rgba(255,255,255,0.06); color:var(--text-muted); font-size:10px;">Локальный</span>`;
+
+            row.innerHTML = `
+                <td style="font-weight:600; padding:12px 18px; font-family:'JetBrains Mono', monospace; font-size:13px;">
+                    ${u.username}
+                </td>
+                <td style="padding:12px 18px; color:var(--text-main); font-size:13px;">
+                    ${u.display_name || u.username}
+                </td>
+                <td style="padding:12px 18px;">
+                    ${sourceBadge}
+                </td>
+                <td style="padding:12px 18px;">
+                    <select class="role-select" onchange="changeUserRole(${u.id}, this.value, '${u.username}')">
+                        <option value="operator" ${u.role === 'operator' ? 'selected' : ''}>Оператор</option>
+                        <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Администратор</option>
+                    </select>
+                </td>
+                <td style="padding:12px 18px; color:var(--text-muted); font-size:12px;">
+                    ${u.last_login || '—'}
+                </td>
+                <td style="padding:12px 18px; color:var(--text-muted); font-size:12px;">
+                    ${u.created_at || '—'}
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+
+    } catch (e) {
+        console.error("Ошибка загрузки пользователей:", e);
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center" style="padding:24px; color:var(--danger);">Ошибка связи при загрузке пользователей</td></tr>`;
+    }
+}
+
+// Изменение роли пользователя
+async function changeUserRole(userId, newRole, username) {
+    try {
+        const response = await fetch(`${BASE_PATH}/api/users/update-role/${userId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: newRole })
+        });
+
+        if (!checkAuthResponse(response)) return;
+        const res = await response.json();
+
+        if (response.ok && res.success) {
+            loadAuditLogs();
+        } else {
+            alert(`Не удалось изменить роль для ${username}: ${res.error || 'Ошибка'}`);
+            loadUsersTable();
+        }
+    } catch {
+        alert("Ошибка соединения с сервером при смене роли.");
+        loadUsersTable();
+    }
+}
+
 
 // Управление темой оформления
 function initThemeToggle() {
@@ -865,10 +1268,13 @@ window.onload = function() {
     // Периодическое обновление данных раз в 10 секунд
     setInterval(function() {
         checkServiceStatus();
-        if (currentTab === 'certificates') {
+        if (currentTab === 'clients') {
             loadClients();
-        } else {
+        } else if (currentTab === 'audit') {
             loadAuditLogs();
+        } else if (currentTab === 'users') {
+            loadUsersTable();
         }
     }, 10000);
 };
+

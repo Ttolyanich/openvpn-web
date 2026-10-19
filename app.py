@@ -40,7 +40,10 @@ config = {
     "dev_node_name": os.getenv("DEV_NODE_NAME", os.getenv("DEV_NODE_PREFIX", "VPN-ADAPTER")),
     "dev_node_prefix": os.getenv("DEV_NODE_NAME", os.getenv("DEV_NODE_PREFIX", "VPN-ADAPTER")),
     "dev_node_mode": "common", # "common" (общий по умолчанию), "none", "custom"
-    "configs_dir": os.getenv("CONFIGS_DIR", "./data/configs")
+    "configs_dir": os.getenv("CONFIGS_DIR", "./data/configs"),
+    # Настройки ролей администраторов ноды
+    "admin_users": [],
+    "admin_group": ""
 }
 
 if os.path.exists(CONFIG_PATH):
@@ -89,6 +92,20 @@ if os.getenv("DEV_NODE_MODE"):
     config["dev_node_mode"] = os.getenv("DEV_NODE_MODE").lower().strip()
 if os.getenv("CONFIGS_DIR"):
     config["configs_dir"] = os.getenv("CONFIGS_DIR")
+
+# Список администраторов ноды из .env
+admin_users_raw = os.getenv("ADMIN_USERS") or os.getenv("OPENVPN_ADMIN_USERS") or ""
+if admin_users_raw:
+    config["admin_users"] = [u.strip().lower() for u in admin_users_raw.split(",") if u.strip()]
+elif isinstance(config.get("admin_users"), str):
+    config["admin_users"] = [u.strip().lower() for u in config["admin_users"].split(",") if u.strip()]
+elif isinstance(config.get("admin_users"), list):
+    config["admin_users"] = [str(u).strip().lower() for u in config["admin_users"] if str(u).strip()]
+
+if os.getenv("ADMIN_GROUP"):
+    config["admin_group"] = os.getenv("ADMIN_GROUP").strip()
+elif os.getenv("OPENVPN_ADMIN_GROUP"):
+    config["admin_group"] = os.getenv("OPENVPN_ADMIN_GROUP").strip()
 
 # Автогенерация secret_key при первом старте
 if config.get("secret_key") == "default-secret-key-32-chars-long-please-change" or not config.get("secret_key"):
@@ -223,10 +240,97 @@ def init_db():
             status TEXT DEFAULT 'Active'
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            role TEXT NOT NULL DEFAULT 'operator',
+            display_name TEXT,
+            auth_source TEXT NOT NULL DEFAULT 'central',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_login TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     conn.commit()
+
+    # Миграция схемы для таблицы users при обновлении
+    try:
+        cursor.execute("PRAGMA table_info(users)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if "display_name" not in cols:
+            cursor.execute("ALTER TABLE users ADD COLUMN display_name TEXT")
+        if "auth_source" not in cols:
+            cursor.execute("ALTER TABLE users ADD COLUMN auth_source TEXT NOT NULL DEFAULT 'central'")
+        if "last_login" not in cols:
+            cursor.execute("ALTER TABLE users ADD COLUMN last_login TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+        conn.commit()
+    except Exception as e:
+        print(f"User schema migration warning: {e}")
+
     conn.close()
 
 init_db()
+
+# Синхронизация и кеширование пользователей ноды
+def sync_node_user(username, central_role="operator", display_name=None, auth_source="central"):
+    """
+    Синхронизирует и кеширует пользователя в таблице users в node.db.
+    Определяет роль: 'admin' или 'operator'.
+    Если пользователь указан в ADMIN_USERS (включая вариант без @domain),
+    он гарантированно получает роль 'admin'.
+    Если уже существует в БД, сохраняет измененную в интерфейсе роль (кроме явного повышения в admin по ADMIN_USERS).
+    """
+    if not username:
+        return "operator"
+    clean_user = username.strip()
+    short_login = clean_user.split('@')[0].split('\\')[-1].strip().lower()
+
+    # Собираем список администраторов из .env
+    admin_users_all = set()
+    for u in config.get("admin_users", []):
+        u_clean = u.strip().lower()
+        if u_clean:
+            admin_users_all.add(u_clean)
+            if "@" in u_clean:
+                admin_users_all.add(u_clean.split("@")[0])
+            elif "\\" in u_clean:
+                admin_users_all.add(u_clean.split("\\")[-1])
+
+    is_explicit_admin = (clean_user.lower() in admin_users_all or short_login in admin_users_all)
+    disp_name = display_name or clean_user
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, username, role, display_name FROM users WHERE LOWER(username) IN (?, ?)",
+            (clean_user.lower(), short_login)
+        )
+        existing = cursor.fetchone()
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        if not existing:
+            initial_role = "admin" if (is_explicit_admin or central_role == "admin") else "operator"
+            cursor.execute(
+                "INSERT INTO users (username, role, display_name, auth_source, last_login) VALUES (?, ?, ?, ?, ?)",
+                (clean_user, initial_role, disp_name, auth_source, now_str)
+            )
+            conn.commit()
+            effective_role = initial_role
+        else:
+            effective_role = existing['role']
+            if is_explicit_admin:
+                effective_role = "admin"
+            cursor.execute(
+                "UPDATE users SET role = ?, display_name = ?, last_login = ? WHERE id = ?",
+                (effective_role, disp_name or existing['display_name'], now_str, existing['id'])
+            )
+            conn.commit()
+        conn.close()
+        return effective_role
+    except Exception as e:
+        print(f"Error syncing node user: {e}")
+        return "admin" if (is_explicit_admin or central_role == "admin") else "operator"
 
 # Логирование действий пользователей (Audit Log)
 def log_action(username, action, details=""):
@@ -280,7 +384,7 @@ def register_failed_login(key):
     except Exception as e:
         print(f"Register failed login error: {e}")
 
-# Декоратор авторизации с TTL-кешированием валидности сессии (180 секунд)
+# Декоратор авторизации
 AUTH_CACHE_TTL = 180
 
 def login_required(f):
@@ -290,6 +394,21 @@ def login_required(f):
             if request.is_json or request.path.startswith('/api/'):
                 return jsonify({"error": "Unauthorized"}), 401
             return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+# Декоратор прав Администратора
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get("logged_in"):
+            if request.is_json or request.path.startswith('/api/'):
+                return jsonify({"error": "Unauthorized"}), 401
+            return redirect(url_for('login'))
+        if session.get("role") != "admin":
+            if request.is_json or request.path.startswith('/api/'):
+                return jsonify({"error": "Forbidden: Требуются права Администратора"}), 403
+            abort(403)
         return f(*args, **kwargs)
     return decorated_function
 
@@ -533,98 +652,386 @@ def get_online_clients():
 def sanitize_name(name):
     return re.sub(r'[^a-zA-Z0-9_-]', '_', name)
 
-# Генерация клиентского .ovpn с поддержкой Wintun / dev-node и платформ
-def generate_ovpn(client_name, platform='windows', dev_node=None):
-    try:
-        common = ""
-        if os.path.exists(CLIENT_COMMON):
-            with open(CLIENT_COMMON, "r") as f:
-                common = f.read()
-                
-        ca = ""
-        ca_path = f"{EASY_RSA_DIR}/pki/ca.crt"
-        if not os.path.exists(ca_path):
-            ca_path = os.path.join(os.path.dirname(SERVER_CONF), "ca.crt")
-        if os.path.exists(ca_path):
-            with open(ca_path, "r") as f:
-                ca = f.read()
-                
-        cert = ""
-        cert_path = f"{EASY_RSA_DIR}/pki/issued/{client_name}.crt"
-        if os.path.exists(cert_path):
-            with open(cert_path, "r") as f:
-                cert_content = f.read()
-                cert = cert_content[cert_content.find("-----BEGIN CERTIFICATE-----"):]
-                
-        key = ""
-        key_path = f"{EASY_RSA_DIR}/pki/private/{client_name}.key"
-        if os.path.exists(key_path):
-            with open(key_path, "r") as f:
-                key = f.read()
-            
-        tc = ""
-        tc_candidates = [
-            os.path.join(os.path.dirname(SERVER_CONF), "tc.key"),
-            os.path.join(os.path.dirname(SERVER_CONF), "ta.key"),
-            f"{EASY_RSA_DIR}/tc.key",
-            "/app/data/server/tc.key",
-            "/app/data/tc.key",
-            "/etc/openvpn/server/tc.key"
-        ]
-        for tc_cand in tc_candidates:
-            if os.path.exists(tc_cand):
-                with open(tc_cand, "r") as f:
-                    tc_content = f.read()
-                    idx = tc_content.find("-----BEGIN OpenVPN Static key")
-                    if idx != -1:
-                        tc = tc_content[idx:]
-                    else:
-                        tc = tc_content
-                break
+# Динамическая сборка клиентского .ovpn на лету (On-The-Fly)
+def build_client_ovpn_content(client_name):
+    """
+    Динамически собирает полный .ovpn файл конфигурации клиента на лету
+    с актуальными настройками сервера, ключами и директивами адаптера.
+    """
+    client_name = sanitize_name(client_name)
+    if not client_name:
+        return None
 
-        # Сборка кастомных директив под платформу
-        platform_directives = []
-        if platform == 'windows':
-            platform_directives.append("# Windows Wintun driver and tunnel interface isolation")
-            platform_directives.append("windows-driver wintun")
-            target_dev_node = dev_node if dev_node is not None else config.get("dev_node_name", "VPN-ADAPTER")
-            if target_dev_node and target_dev_node != "none":
-                platform_directives.append(f'dev-node "{target_dev_node}"')
-        elif platform == 'linux':
-            platform_directives.append("# Linux / macOS native client configuration")
+    # 1. Шаблон клиента
+    common = ""
+    if os.path.exists(CLIENT_COMMON):
+        try:
+            with open(CLIENT_COMMON, "r", encoding="utf-8") as f:
+                common = f.read().strip()
+        except Exception as e:
+            print(f"Error reading CLIENT_COMMON: {e}")
 
-        directives_str = "\n".join(platform_directives)
-        if directives_str:
-            directives_str += "\n"
-
-        ovpn_content = (
-            f"{common}\n"
-            f"{directives_str}"
-            f"<ca>\n{ca}\n</ca>\n"
-            f"<cert>\n{cert}\n</cert>\n"
-            f"<key>\n{key}\n</key>\n"
-            f"<tls-crypt>\n{tc}\n</tls-crypt>\n"
+    if not common:
+        cfg = get_server_config()
+        common = (
+            "client\n"
+            "dev tun\n"
+            f"proto {cfg.get('proto', 'udp')}\n"
+            f"remote {cfg.get('server_host', '127.0.0.1')} {cfg.get('port', 1194)}\n"
+            "resolv-retry infinite\n"
+            "nobind\n"
+            "persist-key\n"
+            "persist-tun\n"
+            "remote-cert-tls server\n"
+            "auth SHA512\n"
+            "verb 3"
         )
 
-        # Сохраняем в каталог CONFIGS_DIR (./data/configs) и OUTPUT_DIR (/root/openvpn)
-        os.makedirs(CONFIGS_DIR, exist_ok=True)
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-        
-        path1 = os.path.join(CONFIGS_DIR, f"{client_name}.ovpn")
-        path2 = os.path.join(OUTPUT_DIR, f"{client_name}.ovpn")
-        
-        with open(path1, "w", encoding="utf-8") as f:
-            f.write(ovpn_content)
-        try:
-            with open(path2, "w", encoding="utf-8") as f:
-                f.write(ovpn_content)
-        except Exception:
-            pass
+    # 2. Сертификат CA
+    ca = ""
+    ca_candidates = [
+        f"{EASY_RSA_DIR}/pki/ca.crt",
+        os.path.join(os.path.dirname(SERVER_CONF), "ca.crt"),
+        "/app/data/server/ca.crt",
+        "/etc/openvpn/server/ca.crt"
+    ]
+    for c in ca_candidates:
+        if os.path.exists(c):
+            with open(c, "r", encoding="utf-8") as f:
+                ca = f.read().strip()
+            break
 
-        return True
+    # 3. Сертификат клиента
+    cert = ""
+    cert_path = f"{EASY_RSA_DIR}/pki/issued/{client_name}.crt"
+    if os.path.exists(cert_path):
+        with open(cert_path, "r", encoding="utf-8") as f:
+            cert_content = f.read()
+            idx = cert_content.find("-----BEGIN CERTIFICATE-----")
+            if idx != -1:
+                cert = cert_content[idx:].strip()
+
+    # 4. Приватный ключ клиента
+    key = ""
+    key_path = f"{EASY_RSA_DIR}/pki/private/{client_name}.key"
+    if os.path.exists(key_path):
+        with open(key_path, "r", encoding="utf-8") as f:
+            key = f.read().strip()
+
+    # 5. Ключ tls-crypt / ta.key
+    tc = ""
+    tc_candidates = [
+        os.path.join(os.path.dirname(SERVER_CONF), "tc.key"),
+        os.path.join(os.path.dirname(SERVER_CONF), "ta.key"),
+        f"{EASY_RSA_DIR}/tc.key",
+        "/app/data/server/tc.key",
+        "/app/data/tc.key",
+        "/etc/openvpn/server/tc.key"
+    ]
+    for tc_cand in tc_candidates:
+        if os.path.exists(tc_cand):
+            with open(tc_cand, "r", encoding="utf-8") as f:
+                tc_content = f.read()
+                idx = tc_content.find("-----BEGIN OpenVPN Static key")
+                if idx != -1:
+                    tc = tc_content[idx:].strip()
+                else:
+                    tc = tc_content.strip()
+            break
+
+    if not ca or not cert or not key:
+        return None
+
+    # 6. Читаем метаданные клиента (платформа и dev-node)
+    platform = "windows"
+    dev_node = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT platform, dev_node FROM vpn_clients_meta WHERE client_name = ?", (client_name,))
+        row = cursor.fetchone()
+        if row:
+            platform = row['platform'] or "windows"
+            dev_node = row['dev_node']
+        conn.close()
     except Exception as e:
-        print(f"Error generating config for {client_name}: {e}")
-        return False
+        print(f"Error fetching client meta: {e}")
+
+    # 7. Директивы платформы (Windows Wintun и dev-node)
+    platform_directives = []
+    dev_node_enabled = config.get("dev_node_enabled", True)
+    default_dev_node = config.get("dev_node_name", "VPN-ADAPTER")
+
+    if platform == "windows":
+        platform_directives.append("# Windows Wintun driver and tunnel interface isolation")
+        platform_directives.append("windows-driver wintun")
+        if dev_node_enabled:
+            target_dev = dev_node if dev_node and dev_node != "—" else default_dev_node
+            if target_dev and target_dev != "none":
+                platform_directives.append(f'dev-node "{target_dev}"')
+    elif platform == "linux":
+        platform_directives.append("# Linux / macOS native client configuration")
+
+    directives_str = "\n".join(platform_directives)
+    if directives_str:
+        directives_str += "\n"
+
+    ovpn_content = (
+        f"{common}\n"
+        f"{directives_str}"
+        f"<ca>\n{ca}\n</ca>\n"
+        f"<cert>\n{cert}\n</cert>\n"
+        f"<key>\n{key}\n</key>\n"
+    )
+    if tc:
+        ovpn_content += f"<tls-crypt>\n{tc}\n</tls-crypt>\n"
+
+    return ovpn_content
+
+def generate_ovpn(client_name, platform='windows', dev_node=None):
+    """Совместимость: возвращает True если конфиг и ключи клиента успешно сформированы."""
+    return bool(build_client_ovpn_content(client_name))
+
+# ----------------- Управление конфигурацией OpenVPN сервера -----------------
+
+def get_server_config():
+    """
+    Парсит server.conf и client-common.txt, возвращая структурированный словарь параметров.
+    """
+    subnet_def, mask_def = parse_openvpn_server_subnet()
+    cfg = {
+        "server_host": "",
+        "port": 1194,
+        "proto": "udp",
+        "subnet": subnet_def,
+        "netmask": mask_def,
+        "push_routes": [],
+        "push_dns": [],
+        "redirect_gateway": False,
+        "client_to_client": False,
+        "dev_node_enabled": config.get("dev_node_enabled", True),
+        "dev_node_name": config.get("dev_node_name", "VPN-ADAPTER")
+    }
+
+    # 1. Из client-common.txt считываем remote (host и port)
+    if os.path.exists(CLIENT_COMMON):
+        try:
+            with open(CLIENT_COMMON, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("remote ") and not line.startswith("#"):
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            cfg["server_host"] = parts[1]
+                        if len(parts) >= 3 and parts[2].isdigit():
+                            cfg["port"] = int(parts[2])
+                    elif line.startswith("proto ") and not line.startswith("#"):
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            cfg["proto"] = parts[1].lower()
+        except Exception as e:
+            print(f"Error reading client-common.txt: {e}")
+
+    # Fallback server_host если пустой
+    if not cfg["server_host"]:
+        cfg["server_host"] = os.getenv("PUBLIC_IP") or socket.gethostname()
+
+    # 2. Из server.conf считываем параметры OpenVPN
+    if os.path.exists(SERVER_CONF):
+        try:
+            with open(SERVER_CONF, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or line.startswith(";"):
+                        continue
+                    if line.startswith("port ") and line.split()[1].isdigit():
+                        cfg["port"] = int(line.split()[1])
+                    elif line.startswith("proto "):
+                        cfg["proto"] = line.split()[1].lower()
+                    elif line.startswith("server "):
+                        parts = line.split()
+                        if len(parts) >= 3:
+                            cfg["subnet"] = parts[1]
+                            cfg["netmask"] = parts[2]
+                    elif "push" in line:
+                        if "route " in line:
+                            m = re.search(r'route\s+([\d\.]+)\s+([\d\.]+)', line)
+                            if m:
+                                net = m.group(1)
+                                mask = m.group(2)
+                                try:
+                                    cidr = ipaddress.IPv4Network(f"{net}/{mask}", strict=False)
+                                    cfg["push_routes"].append(str(cidr))
+                                except Exception:
+                                    cfg["push_routes"].append(f"{net}/{mask}")
+                        elif "dhcp-option DNS" in line:
+                            m = re.search(r'dhcp-option\s+DNS\s+([\d\.]+)', line)
+                            if m:
+                                cfg["push_dns"].append(m.group(1))
+                        elif "redirect-gateway" in line:
+                            cfg["redirect_gateway"] = True
+                    elif line == "client-to-client":
+                        cfg["client_to_client"] = True
+        except Exception as e:
+            print(f"Error reading server.conf: {e}")
+
+    return cfg
+
+def save_server_config(new_cfg):
+    """
+    Валидирует, сохраняет server.conf и client-common.txt,
+    обновляет dev-node в config.json и перезапускает службу OpenVPN.
+    """
+    host = str(new_cfg.get("server_host", "")).strip()
+    if not host:
+        return False, "Адрес сервера (IP или домен) не может быть пустым"
+
+    try:
+        port = int(new_cfg.get("port", 1194))
+    except (ValueError, TypeError):
+        return False, "Порт должен быть числом"
+    if port < 1 or port > 65535:
+        return False, "Порт должен быть в диапазоне 1-65535"
+
+    proto = str(new_cfg.get("proto", "udp")).lower().strip()
+    if proto not in ["udp", "tcp"]:
+        return False, "Протокол должен быть UDP или TCP"
+
+    subnet = str(new_cfg.get("subnet", "10.8.0.0")).strip()
+    netmask = str(new_cfg.get("netmask", "255.255.255.0")).strip()
+    try:
+        ipaddress.IPv4Network(f"{subnet}/{netmask}", strict=False)
+    except Exception as e:
+        return False, f"Некорректная подсеть или маска сети: {e}"
+
+    # Валидация push-маршрутов
+    valid_routes = []
+    raw_routes = new_cfg.get("push_routes", [])
+    if isinstance(raw_routes, str):
+        raw_routes = [r.strip() for r in raw_routes.split(",") if r.strip()]
+
+    for r in raw_routes:
+        r = str(r).strip()
+        if not r:
+            continue
+        try:
+            if "/" in r:
+                net_obj = ipaddress.IPv4Network(r, strict=False)
+                valid_routes.append(f"{net_obj.network_address} {net_obj.netmask}")
+            else:
+                parts = r.split()
+                if len(parts) == 2:
+                    ipaddress.IPv4Network(f"{parts[0]}/{parts[1]}", strict=False)
+                    valid_routes.append(f"{parts[0]} {parts[1]}")
+                else:
+                    return False, f"Недопустимый формат маршрута: «{r}». Используйте CIDR (например: 192.168.1.0/24)"
+        except Exception:
+            return False, f"Недопустимый маршрут сети: «{r}». Используйте формат 192.168.1.0/24"
+
+    # Валидация DNS
+    valid_dns = []
+    raw_dns = new_cfg.get("push_dns", [])
+    if isinstance(raw_dns, str):
+        raw_dns = [d.strip() for d in raw_dns.split(",") if d.strip()]
+
+    for d in raw_dns:
+        d = str(d).strip()
+        if not d:
+            continue
+        try:
+            ipaddress.IPv4Address(d)
+            valid_dns.append(d)
+        except Exception:
+            return False, f"Недопустимый IP-адрес DNS: «{d}»"
+
+    redirect_gw = bool(new_cfg.get("redirect_gateway", False))
+    c2c = bool(new_cfg.get("client_to_client", False))
+    dev_node_en = bool(new_cfg.get("dev_node_enabled", True))
+    dev_node_val = str(new_cfg.get("dev_node_name", "VPN-ADAPTER")).strip() or "VPN-ADAPTER"
+
+    # 1. Резервная копия server.conf
+    server_dir = os.path.dirname(SERVER_CONF)
+    if server_dir:
+        os.makedirs(server_dir, exist_ok=True)
+    if os.path.exists(SERVER_CONF):
+        try:
+            shutil.copy(SERVER_CONF, f"{SERVER_CONF}.bak")
+        except Exception as e:
+            print(f"Warning: could not backup server.conf: {e}")
+
+    # 2. Формируем server.conf
+    server_lines = [
+        f"port {port}",
+        f"proto {proto}",
+        "dev tun",
+        "ca ca.crt",
+        "cert server.crt",
+        "key server.key",
+        "dh dh.pem",
+        "auth SHA512",
+        "tls-crypt tc.key",
+        "topology subnet",
+        f"server {subnet} {netmask}",
+        "client-config-dir ccd",
+        "ifconfig-pool-persist ipp.txt",
+        "keepalive 10 120",
+        "persist-key",
+        "persist-tun",
+        "verb 3",
+        "crl-verify crl.pem",
+        "status /app/data/openvpn-status.log 5",
+        "status-version 2",
+        "management /run/openvpn.sock unix"
+    ]
+    if proto == "udp":
+        server_lines.append("explicit-exit-notify")
+
+    if c2c:
+        server_lines.append("client-to-client")
+
+    if redirect_gw:
+        server_lines.append('push "redirect-gateway def1"')
+
+    for r in valid_routes:
+        server_lines.append(f'push "route {r}"')
+
+    for d in valid_dns:
+        server_lines.append(f'push "dhcp-option DNS {d}"')
+
+    with open(SERVER_CONF, "w", encoding="utf-8") as f:
+        f.write("\n".join(server_lines) + "\n")
+
+    # 3. Формируем client-common.txt
+    client_lines = [
+        "client",
+        "dev tun",
+        f"proto {proto}",
+        f"remote {host} {port}",
+        "resolv-retry infinite",
+        "nobind",
+        "persist-key",
+        "persist-tun",
+        "remote-cert-tls server",
+        "auth SHA512",
+        "verb 3"
+    ]
+    with open(CLIENT_COMMON, "w", encoding="utf-8") as f:
+        f.write("\n".join(client_lines) + "\n")
+
+    # 4. Обновляем config.json
+    config["dev_node_enabled"] = dev_node_en
+    config["dev_node_name"] = dev_node_val
+    config["dev_node_prefix"] = dev_node_val
+    try:
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2)
+    except Exception as e:
+        print(f"Error saving config.json: {e}")
+
+    # 5. Перезапуск OpenVPN службы
+    vpn_manager.restart_service()
+
+    return True, None
 
 def get_clients():
     clients = []
@@ -722,6 +1129,19 @@ def get_clients():
 @app.route('/')
 @login_required
 def index():
+    # Авто-синхронизация пользователя активной сессии
+    if session.get("username"):
+        try:
+            eff_role = sync_node_user(
+                session.get("username"),
+                session.get("role", "operator"),
+                session.get("display_name") or session.get("username"),
+                session.get("auth_mode", "central")
+            )
+            session["role"] = eff_role
+        except Exception as e:
+            print(f"Error syncing session on index: {e}")
+
     subnet_ip, netmask = parse_openvpn_server_subnet()
     dev_node_name = config.get("dev_node_name", config.get("dev_node_prefix", "VPN-ADAPTER"))
     return render_template(
@@ -730,7 +1150,10 @@ def index():
         auth_mode=config.get("auth_mode", "central"),
         subnet=f"{subnet_ip}/{netmask}",
         dev_node_prefix=dev_node_name,
-        dev_node_name=dev_node_name
+        dev_node_name=dev_node_name,
+        dev_node_enabled=config.get("dev_node_enabled", True),
+        user_role=session.get("role", "operator"),
+        current_username=session.get("username", "")
     )
 
 # Вход в систему
@@ -754,11 +1177,13 @@ def login():
             admin_user = config.get("standalone_admin_user", "admin")
             admin_pass = config.get("standalone_admin_password", "admin123")
             if username == admin_user and password == admin_pass:
+                effective_role = sync_node_user(username, "admin", "Локальный Администратор", "standalone")
                 session["logged_in"] = True
                 session["username"] = username
-                session["role"] = "admin"
+                session["role"] = effective_role
+                session["display_name"] = "Локальный Администратор"
                 session["auth_mode"] = "standalone"
-                log_action(username, "LOGIN", "Успешный автономный вход (Standalone)")
+                log_action(username, "LOGIN", f"Успешный автономный вход ({effective_role})")
                 return jsonify({"success": True})
             else:
                 register_failed_login(request.remote_addr)
@@ -778,12 +1203,16 @@ def login():
             if resp.status_code == 200:
                 res_data = resp.json()
                 if res_data.get("success"):
+                    c_role = res_data.get("role", "operator")
+                    disp_name = res_data.get("display_name") or res_data.get("full_name") or username
+                    effective_role = sync_node_user(res_data.get("username", username), c_role, disp_name, "central")
                     session["logged_in"] = True
                     session["username"] = res_data.get("username", username)
-                    session["role"] = res_data.get("role", "admin")
+                    session["role"] = effective_role
+                    session["display_name"] = disp_name
                     session["auth_mode"] = "central"
                     session["last_verified"] = time.time()
-                    log_action(username, "LOGIN", f"Успешный вход через Central Auth ({session['role']})")
+                    log_action(username, "LOGIN", f"Успешный вход через Central Auth ({effective_role})")
                     return jsonify({"success": True})
             
             error_msg = "Неверный логин или пароль"
@@ -1006,53 +1435,14 @@ def api_rebuild_client():
     except Exception as e:
         print(f"DB update error: {e}")
 
-    if generate_ovpn(client_name, platform=platform, dev_node=dev_node if platform == 'windows' else None):
-        log_action(session.get("username"), "REBUILD_CLIENT", f"Обновлен конфиг для {client_name} (Wintun: {dev_node or 'none'})")
-        return jsonify({
-            "success": True,
-            "client": client_name,
-            "platform": platform,
-            "dev_node": dev_node or "—",
-            "ip": current_ip or "Dynamic"
-        })
-        
-    log_action(session.get("username"), "REBUILD_CLIENT_FAILED", f"Ошибка пересборки для {client_name}")
-    return jsonify({"error": "Не удалось пересобрать конфигурационный файл"}), 500
-
-@app.route('/api/clients/rebuild-all', methods=['POST'])
-@login_required
-def api_rebuild_all_clients():
-    clients = get_clients()
-    active_clients = [c for c in clients if c['status'] == 'Active']
-    dev_node_default = config.get("dev_node_name", config.get("dev_node_prefix", "VPN-ADAPTER"))
-    
-    updated_count = 0
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        for c in active_clients:
-            cname = c['name']
-            cursor.execute("SELECT platform, dev_node FROM vpn_clients_meta WHERE client_name = ?", (cname,))
-            row = cursor.fetchone()
-            platform = row['platform'] if row and row['platform'] else c.get('platform', 'windows')
-            dev_node = dev_node_default if platform == 'windows' else None
-            
-            cursor.execute("""
-                INSERT INTO vpn_clients_meta (client_name, platform, dev_node, status)
-                VALUES (?, ?, ?, 'Active')
-                ON CONFLICT(client_name) DO UPDATE SET platform=excluded.platform, dev_node=excluded.dev_node
-            """, (cname, platform, dev_node or "—"))
-            
-            generate_ovpn(cname, platform=platform, dev_node=dev_node)
-            updated_count += 1
-            
-        conn.commit()
-        conn.close()
-        log_action(session.get("username"), "REBUILD_ALL", f"Массовое обновление {updated_count} клиентов с dev-node {dev_node_default}")
-        return jsonify({"success": True, "count": updated_count, "dev_node": dev_node_default})
-    except Exception as e:
-        print(f"Error rebuilding all clients: {e}")
-        return jsonify({"error": str(e)}), 500
+    log_action(session.get("username"), "UPDATE_CLIENT", f"Обновлены параметры клиента {client_name} (Wintun: {dev_node or 'none'}, IP: {current_ip or 'Dynamic'})")
+    return jsonify({
+        "success": True,
+        "client": client_name,
+        "platform": platform,
+        "dev_node": dev_node or "—",
+        "ip": current_ip or "Dynamic"
+    })
 
 @app.route('/api/clients/revoke', methods=['POST'])
 @login_required
@@ -1114,52 +1504,82 @@ def api_revoke_client():
 @login_required
 def download_config(client_name):
     client_name = sanitize_name(client_name)
-    dev_node_default = config.get("dev_node_name", config.get("dev_node_prefix", "VPN-ADAPTER"))
-    
-    # 1. Считываем сохраненную платформу и dev-node из метаданных
-    platform = "windows"
-    dev_node = dev_node_default
+    ovpn_content = build_client_ovpn_content(client_name)
+    if not ovpn_content:
+        abort(404)
+
+    log_action(session.get("username"), "DOWNLOAD_CONFIG", f"Скачан динамический .ovpn клиента: {client_name}")
+    from io import BytesIO
+    bio = BytesIO(ovpn_content.encode('utf-8'))
+    return send_file(bio, as_attachment=True, download_name=f"{client_name}.ovpn", mimetype="application/x-openvpn-profile")
+
+# ----------------- API Управления конфигурацией сервера (Admin only) -----------------
+
+@app.route('/api/server/config', methods=['GET'])
+@admin_required
+def api_get_server_config():
+    try:
+        cfg = get_server_config()
+        online_clients = list(get_online_clients())
+        cfg["online_count"] = len(online_clients)
+        return jsonify(cfg)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/server/config', methods=['POST'])
+@admin_required
+def api_save_server_config():
+    data = request.json or {}
+    ok, err = save_server_config(data)
+    if not ok:
+        return jsonify({"error": err or "Ошибка сохранения настроек"}), 400
+
+    log_action(session.get("username"), "UPDATE_SERVER_CONFIG", "Обновлена конфигурация сервера OpenVPN")
+    return jsonify({"success": True, "message": "Конфигурация сервера успешно сохранена и OpenVPN перезапущен"})
+
+# ----------------- API Управления пользователями ноды (Admin only) -----------------
+
+@app.route('/api/users', methods=['GET'])
+@admin_required
+def api_get_users():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT platform, dev_node FROM vpn_clients_meta WHERE client_name = ?", (client_name,))
-        row = cursor.fetchone()
-        if row:
-            platform = row['platform'] or "windows"
-            dev_node = row['dev_node'] if row['dev_node'] and row['dev_node'] != "—" else dev_node_default
+        cursor.execute("SELECT id, username, role, display_name, auth_source, created_at, last_login FROM users ORDER BY id ASC")
+        users = [dict(row) for row in cursor.fetchall()]
         conn.close()
+        return jsonify(users)
     except Exception as e:
-        print(f"Error fetching client meta for download: {e}")
+        return jsonify({"error": str(e)}), 500
 
-    file_path1 = os.path.join(CONFIGS_DIR, f"{client_name}.ovpn")
-    
-    # 2. Проверяем, актуален ли файл на диске:
-    # Если платформа Windows, файл ОБЯЗАН содержать windows-driver wintun и dev-node
-    needs_refresh = False
-    if not os.path.exists(file_path1):
-        needs_refresh = True
-    elif platform == 'windows' and dev_node and dev_node != "—":
-        try:
-            with open(file_path1, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-                if "windows-driver wintun" not in content or f'dev-node "{dev_node}"' not in content:
-                    needs_refresh = True
-        except Exception:
-            needs_refresh = True
+@app.route('/api/users/update-role/<int:user_id>', methods=['POST'])
+@admin_required
+def api_update_user_role(user_id):
+    data = request.json or {}
+    new_role = data.get('role', '').strip()
+    if new_role not in ['admin', 'operator']:
+        return jsonify({"error": "Неверная роль (доступны: admin, operator)"}), 400
 
-    if needs_refresh:
-        generate_ovpn(client_name, platform=platform, dev_node=dev_node if platform == 'windows' else None)
+    current_user = session.get("username", "")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, username, role FROM users WHERE id = ?", (user_id,))
+        user = cursor.fetchone()
+        if not user:
+            conn.close()
+            return jsonify({"error": "Пользователь не найден"}), 404
+        if user['username'].lower() == current_user.lower():
+            conn.close()
+            return jsonify({"error": "Вы не можете изменить роль самому себе"}), 400
 
-    if os.path.exists(file_path1):
-        log_action(session.get("username"), "DOWNLOAD_CONFIG", f"Скачан конфиг клиента: {client_name}")
-        return send_file(file_path1, as_attachment=True, download_name=f"{client_name}.ovpn")
-        
-    file_path2 = os.path.join(OUTPUT_DIR, f"{client_name}.ovpn")
-    if os.path.exists(file_path2):
-        log_action(session.get("username"), "DOWNLOAD_CONFIG", f"Скачан конфиг клиента: {client_name}")
-        return send_file(file_path2, as_attachment=True, download_name=f"{client_name}.ovpn")
-
-    abort(404)
+        cursor.execute("UPDATE users SET role = ? WHERE id = ?", (new_role, user_id))
+        conn.commit()
+        conn.close()
+        log_action(current_user, "UPDATE_USER_ROLE", f"Изменена роль для {user['username']}: {new_role}")
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/service/status', methods=['GET'])
 @login_required
@@ -1168,7 +1588,7 @@ def service_status():
     return jsonify({"status": "active" if is_active else "failed"})
 
 @app.route('/api/service/restart', methods=['POST'])
-@login_required
+@admin_required
 def service_restart():
     try:
         success = vpn_manager.restart_service()
