@@ -709,12 +709,23 @@ async function loadServerConfigForm() {
         if (!checkAuthResponse(response)) return;
         const res = await response.json();
 
-        if (!res.success || !res.config) {
-            console.error("Ошибка загрузки конфигурации сервера:", res.error);
+        let cfg = null;
+        if (res && res.success && res.config) {
+            cfg = res.config;
+        } else if (res && res.config) {
+            cfg = res.config;
+        } else if (res && res.server_host !== undefined) {
+            cfg = res;
+        } else {
+            console.error("Ошибка загрузки конфигурации сервера:", res);
+            if (statusMsg) {
+                statusMsg.style.display = 'block';
+                statusMsg.style.color = '#ef4444';
+                statusMsg.innerText = `Ошибка загрузки конфигурации: ${res.error || 'Не удалось получить параметры'}`;
+            }
             return;
         }
 
-        const cfg = res.config;
         currentServerConfig = { ...cfg };
 
         // Заполняем поля ввода

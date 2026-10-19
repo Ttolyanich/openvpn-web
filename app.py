@@ -80,17 +80,15 @@ if os.getenv("BIND_PORT"):
     config["bind_port"] = int(os.getenv("BIND_PORT"))
 if os.getenv("VERIFY_SSL"):
     config["verify_ssl"] = os.getenv("VERIFY_SSL").lower() == "true"
-if "dev_node_enabled" not in config and os.getenv("DEV_NODE_ENABLED"):
-    config["dev_node_enabled"] = os.getenv("DEV_NODE_ENABLED").lower() in ["true", "1", "yes"]
+# Настройки адаптеров Windows Wintun / dev-node (управляются централизованно через веб-панель в config.json)
+if "dev_node_enabled" not in config:
+    config["dev_node_enabled"] = True
 if "dev_node_name" not in config:
-    if os.getenv("DEV_NODE_NAME"):
-        config["dev_node_name"] = os.getenv("DEV_NODE_NAME").strip()
-        config["dev_node_prefix"] = os.getenv("DEV_NODE_NAME").strip()
-    elif os.getenv("DEV_NODE_PREFIX"):
-        config["dev_node_name"] = os.getenv("DEV_NODE_PREFIX").strip()
-        config["dev_node_prefix"] = os.getenv("DEV_NODE_PREFIX").strip()
-if os.getenv("DEV_NODE_MODE"):
-    config["dev_node_mode"] = os.getenv("DEV_NODE_MODE").lower().strip()
+    config["dev_node_name"] = "client"
+if "dev_node_prefix" not in config:
+    config["dev_node_prefix"] = config["dev_node_name"]
+if "dev_node_mode" not in config:
+    config["dev_node_mode"] = "common"
 if os.getenv("CONFIGS_DIR"):
     config["configs_dir"] = os.getenv("CONFIGS_DIR")
 
@@ -1530,9 +1528,9 @@ def api_get_server_config():
         cfg = get_server_config()
         online_clients = list(get_online_clients())
         cfg["online_count"] = len(online_clients)
-        return jsonify(cfg)
+        return jsonify({"success": True, "config": cfg})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/server/config', methods=['POST'])
 @admin_required
