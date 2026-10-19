@@ -3,6 +3,7 @@ name: Build and Publish Docker Image
 on:
   push:
     branches: [ "main" ]
+    tags: [ "v*" ]
   workflow_dispatch:
 
 env:
@@ -35,6 +36,7 @@ jobs:
           tags: |
             type=raw,value=latest
             type=sha,format=short
+            type=ref,event=tag
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
