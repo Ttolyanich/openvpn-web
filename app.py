@@ -80,14 +80,15 @@ if os.getenv("BIND_PORT"):
     config["bind_port"] = int(os.getenv("BIND_PORT"))
 if os.getenv("VERIFY_SSL"):
     config["verify_ssl"] = os.getenv("VERIFY_SSL").lower() == "true"
-if os.getenv("DEV_NODE_ENABLED"):
+if "dev_node_enabled" not in config and os.getenv("DEV_NODE_ENABLED"):
     config["dev_node_enabled"] = os.getenv("DEV_NODE_ENABLED").lower() in ["true", "1", "yes"]
-if os.getenv("DEV_NODE_NAME"):
-    config["dev_node_name"] = os.getenv("DEV_NODE_NAME").strip()
-    config["dev_node_prefix"] = os.getenv("DEV_NODE_NAME").strip()
-elif os.getenv("DEV_NODE_PREFIX"):
-    config["dev_node_name"] = os.getenv("DEV_NODE_PREFIX").strip()
-    config["dev_node_prefix"] = os.getenv("DEV_NODE_PREFIX").strip()
+if "dev_node_name" not in config:
+    if os.getenv("DEV_NODE_NAME"):
+        config["dev_node_name"] = os.getenv("DEV_NODE_NAME").strip()
+        config["dev_node_prefix"] = os.getenv("DEV_NODE_NAME").strip()
+    elif os.getenv("DEV_NODE_PREFIX"):
+        config["dev_node_name"] = os.getenv("DEV_NODE_PREFIX").strip()
+        config["dev_node_prefix"] = os.getenv("DEV_NODE_PREFIX").strip()
 if os.getenv("DEV_NODE_MODE"):
     config["dev_node_mode"] = os.getenv("DEV_NODE_MODE").lower().strip()
 if os.getenv("CONFIGS_DIR"):
